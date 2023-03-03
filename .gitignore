@@ -4,4 +4,7 @@
 .Ruserdata
 .httr-oauth
 .DS_Store
-RawData/
+.RDataTmp
+data_raw/
+file/
+Icon
