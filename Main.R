@@ -23,20 +23,20 @@ showtext_auto()
 # Read data ----
 ## Constant ----
 # default CRS for the project: JGD2011
-kCRS <- 6668
+my_crs <- 6668
 # note: EPSG for JGD2000 is 4612
 
 ## Pref and cities ----
 # read prefcode and city code
 pref_city_code <-
-  read.csv("RawData/prefcode_citycode_master_UTF-8.csv") %>%
+  read.csv("data_raw/prefcode_citycode_master_UTF-8.csv") %>%
   tibble() %>%
   select(prefcode, prefname, citycode, cityname) %>%
   distinct()
 
 ## Agoop ----
 # Agoop folder
-agoop_folder <- "RawData/23_Agoop_amami_data"
+agoop_folder <- "data_raw/23_Agoop_amami_data"
 # get all subfolder
 agoop_subfolder <-
   list.files(agoop_folder) %>%
@@ -64,11 +64,11 @@ gis_agoop <-
   # turn raw data into simple feature for GIS analysis
   st_as_sf(raw_agoop, coords = c("longitude", "latitude")) %>%
   # add projection
-  st_set_crs(kCRS)
+  st_set_crs(my_crs)
 
 ## Holiday ----
 # holidays in Japan
-holiday <- read.csv("RawData/Japan_holiday_2018.csv") %>%
+holiday <- read.csv("data_raw/Japan_holiday_2018.csv") %>%
   mutate(
     year = 2018, month = substr(.$月日, 1, 2), day  = substr(.$月日, 4, 5)
   ) %>%
@@ -86,7 +86,7 @@ for (i in 1:12) {
 weather <- do.call(rbind, weather)
 
 ## GIS layer ----
-amami <- st_read(dsn = "RawData/KagoshimaAdmin/N03-180101_46_GML",
+amami <- st_read(dsn = "data_raw/KagoshimaAdmin/N03-180101_46_GML",
                  layer = "N03-18_46_180101") %>%
   rename(citycode = N03_007) %>%
   filter(citycode == 46222) %>%
@@ -95,9 +95,9 @@ amami <- st_read(dsn = "RawData/KagoshimaAdmin/N03-180101_46_GML",
 
 # national parks within Amami
 nps_amami <-
-  st_read(dsn = "RawData/NationalPark/nps", layer = "nps_all") %>%
+  st_read(dsn = "data_raw/NationalPark/nps", layer = "nps_all") %>%
   subset(名称 == "奄美群島") %>%
-  st_transform(kCRS) %>%
+  st_transform(my_crs) %>%
   st_make_valid() %>%
   st_union() %>%
   st_sf()
@@ -169,6 +169,7 @@ raw_agoop %>%
 gis_agoop_smp <- gis_agoop %>%
   group_by(month) %>%
   slice_sample(n = 10000)
+# results whole data?
 
 tm_shape(amami) +
   tm_polygons(alpha = 0) +
