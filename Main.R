@@ -3,6 +3,7 @@
 
 # Package ----
 library(jmastats)
+library(lubridate)
 library(openxlsx)
 library(stringr)
 library(dplyr)
@@ -14,6 +15,8 @@ library(tmap)
 library(parallel)
 library(showtext)
 library(patchwork)
+library(jpmesh)
+library(mapview)
 
 # Setting ----
 showtext_auto()
@@ -45,7 +48,7 @@ agoop_subfolder <-
 # get all Agoop *.csv file directory
 agoop_file <- vector("list", length = length(agoop_subfolder))
 for (i in 1:length(agoop_subfolder)) {
-  agoop_file[[i]] <- list.files(paste0(kDirAgoop, "/", agoop_subfolder[i]))
+  agoop_file[[i]] <- list.files(paste0(agoop_folder, "/", agoop_subfolder[i]))
   agoop_file[[i]] <- paste0(
     agoop_folder, "/", agoop_subfolder[i], "/", agoop_file[[i]]
   )
@@ -86,6 +89,7 @@ for (i in 1:12) {
 weather <- do.call(rbind, weather)
 
 ## GIS layer ----
+# Amami boundary
 amami <- st_read(dsn = "data_raw/KagoshimaAdmin/N03-180101_46_GML",
                  layer = "N03-18_46_180101") %>%
   rename(citycode = N03_007) %>%
@@ -94,84 +98,97 @@ amami <- st_read(dsn = "data_raw/KagoshimaAdmin/N03-180101_46_GML",
   st_sf()
 
 # national parks within Amami
-nps_amami <-
-  st_read(dsn = "data_raw/NationalPark/nps", layer = "nps_all") %>%
-  subset(名称 == "奄美群島") %>%
-  st_transform(my_crs) %>%
-  st_make_valid() %>%
-  st_union() %>%
-  st_sf()
+# nps_amami <-
+#   st_read(dsn = "data_raw/NationalPark/nps", layer = "nps_all") %>%
+#   subset(名称 == "奄美群島") %>%
+#   st_transform(my_crs) %>%
+#   st_make_valid() %>%
+#   st_union() %>%
+#   st_sf()
 
-# Analysis -----
-## General description -----
-# reply to questions on GitHub
+# road for night trip
+road <- st_read(dsn = "data_raw", layer = "Night_tour_road") %>%
+  st_transform(my_crs)
+
+# meshes cover the tour road
+# bug: this layer also covers residential area and high way
+tour_mesh <- meshcode_sf(
+  data.frame(
+    meshcode = meshcode(c(42293312, 42293313, 42293314, 42293324,
+                          42293334, 42293344, 42293345))
+  ),
+  meshcode
+) %>%
+  st_transform(my_crs)
+
+# make a buffer zone around the road
+# What buffer distance should we use? According to quantile of accuracy?
+road_buff <- st_buffer(road, 100)
+
+# keep the target Agoop GIS data
+# test: how many data left for analysis?
+# test_agoop <- gis_agoop %>%
+#   filter(accuracy <= 100)
+# dim(test_agoop)
+# test_agoop <- test_agoop %>%
+#   filter(hour >= 19 | hour <= 4)
+# dim(test_agoop)
+# tm_shape(road_buff) +
+#   tm_polygons() +
+#   tm_shape(test_agoop) +
+#   tm_dots()
+# keep the target data
+agoop_buff <- gis_agoop %>%
+  filter(accuracy <= 100, hour >= 19 | hour <= 4) %>%
+  st_join(road_buff) %>%
+  filter(!is.na(id))
+mapView(road_buff) +
+  mapview(agoop_buff, cex = 0.5)
+
+# add variables to the target data
+agoop_buff <- agoop_buff %>%
+  mutate(date = as_date(paste(year, month, day, sep = "-"))) %>%
+  left_join(holiday)
+agoop_buff <- agoop_buff %>%
+  left_join(weather)
+
+# Analysis ----
+## General description ----
 cat(
-  "Number of count: ", nrow(raw_agoop), "\n",
-  "Number of unique ID: ", length(unique(raw_agoop$dailyid)), "\n",
+  "Number of logs: ", nrow(agoop_buff), "\n",
+  "Number of dailyid: ", length(unique(agoop_buff$dailyid)), "\n",
   "Number of log per dailyid: ",
   nrow(raw_agoop) / length(unique(raw_agoop$dailyid))
 )
 
-# temporal change
-# daily change
-raw_agoop %>%
-  select(month, day, dailyid) %>%
-  distinct() %>%
-  group_by(month, day) %>%
-  summarise(n = n()) %>%
+# Peak days are neither holiday nor weekend?
+agoop_buff %>%
+  st_drop_geometry() %>%
+  group_by(year, month, day, dayofweek, holiday_name) %>%
+  summarise(n_dailyid = length(unique(dailyid))) %>%
+  ungroup() %>%
+  mutate(holi_wkn = case_when(
+    !is.na(holiday_name) ~ "holiday",
+    dayofweek > 5 ~ "weekend",
+    TRUE ~ "other"
+  )) %>%
   ggplot() +
-  geom_col(aes(day, n)) +
+  geom_col(aes(day, n_dailyid, fill = holi_wkn)) +
   facet_wrap(.~ month)
 
-# monthly change
-raw_agoop %>%
-  mutate(local = case_when(
-    cityname == "奄美市" ~ TRUE,
-    cityname != "奄美市" ~FALSE
-  )) %>%
-  select(month, local, dailyid) %>%
-  distinct() %>%
-  group_by(local, month) %>%
-  summarise(n = n()) %>%
+# time of logs of each dailyid
+# take August 30 as an example
+agoop_buff %>%
+  st_drop_geometry() %>%
+  filter(month == 8, day == 30) %>%
+  group_by(dailyid, hour, minute) %>%
+  summarise(n_log = n()) %>%
+  ungroup() %>%
   ggplot() +
-  geom_col(aes(month, n, fill = local))
+  geom_tile(aes(dailyid, minute, fill = n_log)) +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(.~ hour)
+# there are 3 dailyid that day, and 2 of them have almost the same time of logs - maybe one person with 2 Agoop apps?
 
-# proportion of local people montly
-local_prop_mth <- raw_agoop %>%
-  mutate(local = case_when(
-    cityname == "奄美市" ~ TRUE,
-    cityname != "奄美市" ~FALSE
-  )) %>%
-  select(month, local, dailyid) %>%
-  distinct() %>%
-  group_by(month) %>%
-  summarise(
-    n = n(),
-    n_local = sum(local == TRUE, na.rm = TRUE),
-    prop_local = n_local / n
-  )
-
-# only keep tourists
-raw_agoop %>%
-  filter(cityname != "奄美市") %>%
-  select(month, dailyid) %>%
-  distinct() %>%
-  group_by(month) %>%
-  summarise(n = n()) %>%
-  ggplot() +
-  geom_col(aes(month, n), fill = "darkred")
-
-# the distribution of the attributes
-# table(raw_agoop$gender) %>% plot(main = "gender")
-# table(raw_agoop$os) %>% plot(main = "os")
-
-# where do people go?
-gis_agoop_smp <- gis_agoop %>%
-  group_by(month) %>%
-  slice_sample(n = 10000)
-# results whole data?
-
-tm_shape(amami) +
-  tm_polygons(alpha = 0) +
-  tm_shape(gis_agoop_smp) +
-  tm_dots(alpha = 0.1)
+# some note:
+# if there are too many people, what we should care is the time lag of two dailyid; or, time period when the target area is empty (say, it need 20 min to recover)

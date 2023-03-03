@@ -1,0 +1,52 @@
+---
+title: "Amami night trip tourists"
+author: "Jiefeng Kang"
+date: "2023-03-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Let's start from the Agoop raw data. 
+The raw data is the logs of people in Amami island. 
+I randomly selected some data of each month, and plot the location of the logs (see the following picture). What we care about is the the dailyid located in the red line area - dailyid who goes to the night tour. 
+
+![](Night_trip_road_in_amami.png)
+
+I got the road GIS data, and made a buffer zone with a 100-meters-distance based on the road line. Then I get all the logs inside the buffer zone, and only keep the data at night (before 5:00 or after 19:00). 
+They are our target logs.
+
+```{r}
+mapView(road_buff) + 
+  mapview(agoop_buff, cex = 0.5)
+```
+
+Unfortunately, as Kubo-san worried about, the number of the logs or the number of the dailyid could be too small. 
+There are only `r nrow(agoop_buff)` logs, from `length(unique(agoop_buff$dailyid))` unique dailyid in year 2018. 
+Then the max number of unique dailyid of each day is only 3. 
+
+```{r}
+agoop_buff %>% 
+  group_by(year, month, day) %>% 
+  summarise(n_dailyid = length(unique(dailyid))) %>% 
+  ungroup() %>% 
+  ggplot() + 
+  geom_col(aes(day, n_dailyid)) + 
+  facet_wrap(.~ month)
+```
+
+Let's see the example of August 30. 
+There are 3 unique dailyid, and the time range of their logs are 20:00 to 23:00, which means, if they went to the road separately with a same time lag, it is very likely that all of them can see the rabbit. 
+Not to mention that it is also possible that they went to the night tour in a same car. 
+
+That is strange, because even in the Amami-night-tour video sent by Kubo-san before, we can see more than 3 people in the car. 
+So **there are only so many night tour tourist? or we lose the location logs of some tourists due to other reason?** 
+Besides, does any organization have the record of cars entering the road? For example, this [night-tour-service company](https://tweak360nobu.wixsite.com/amaminight) might have the record of their cars. 
+If we have the record from that kind of company, we can do a cross validation. 
+
+**The next question is:** if it is true that there are only so many tourist, what do we do? I have some ideas, but they are not necessary good ideas. 
+So maybe we can think about that independently before talking about it. 
