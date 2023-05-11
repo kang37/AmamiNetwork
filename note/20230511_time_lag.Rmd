@@ -1,0 +1,216 @@
+---
+title: "Time lag of every two cars"
+author: "Jiefeng Kang"
+date: "2023-05-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Why do this? 
+
+Get time lag of every two cars, to see if it is long enough for the rabbit-recover. 
+
+## Conclusion first
+
+Bad news is that: as expected, there is no enough data. 
+As the last report shows, in one night, the max number of cars on the road is 3, so the interaction could be even less. And the results proved that. 
+Sometimes thing goes that way: though the analysis is time-consuming, but seems that we got nothing. 
+
+## How to? 
+
+Since the conclusion is negative, it is pointless to explain how I did this analysis though, here I will just give a brief explanation. 
+The core of the analysis is to compare the arrive time of a car to a mesh with that of the car before and after it. In that way, we can get the time lag of every two cars along the time sequence. 
+
+However, since the Agoop data logs are not stable, for most of the cars pass the road, we only have a few logs. For example, if we divide the road into 11 mesh (see the map below), then, for a car pass the road, we might only have 1 log in mesh 3, and 3 logs in mesh 5 (see the example below), while no log in other meshes. Therefore, I inferred the log information of that car in other mesh in a linear way. Take the example again, we have logs in mesh 3 and mesh 5, that means we know when it arrives mesh 3 and mesh 5. Then the time it arrives mesh 4 is calculated as the mean value of arriving time values of mesh 3 and mesh 5. I did that for all the dailyid passing the road. That is the second key point of the time lag calculation. But, it should be noted that, we can only infer the arriving time of the meshes between the meshes of known-value; for the mesh exceeding the range of mesh number of known-values, we can't infer the arriving time. 
+
+```{r}
+# make a new tour_mesh
+tour_mesh <- meshcode_sf(
+  data.frame(
+    meshcode = meshcode(c(422933124, 
+                          422933133, 422933134, 
+                          422933143, 
+                          422933241,  422933242,  422933244, 
+                          422933342, 422933344, 
+                          422933442, 422933444))
+  ),
+  meshcode
+) %>%
+  st_transform(my_crs)
+# bug: assume the cars go in this order
+tour_mesh$order <- 1:nrow(tour_mesh)
+tm_shape(tour_mesh) + 
+  tm_polygons() + 
+  tm_text(text = "order")
+mapView(road_buff) +
+  mapview(agoop_buff, cex = 0.5) + mapview(tour_mesh)
+```
+
+```{r}
+# example of the incomplete data - one dailyid as the example
+# make new time-related mesh to the example dailyid 
+tour_mesh_eg <- tour_mesh
+agoop_buff_eg_time <- agoop_buff_eg %>% 
+  mutate(time = hour * 60 + minute) %>% 
+  select(dailyid, date, time)
+agoop_buff_eg_time
+
+tour_mesh_eg <- st_join(tour_mesh_eg, agoop_buff_eg_time) %>% 
+  group_by(dailyid, meshcode, geometry, order) %>% 
+  # use mean time when there are multiple points in one mesh
+  summarise(time = mean(time)) %>% 
+  arrange(order)
+tour_mesh_eg$dailyid <- agoop_buff$dailyid[60]
+mapview(tour_mesh_eg) + 
+  mapview(agoop_buff_eg_time, cex = 0.1)
+```
+
+Following this, some cars have arriving time information in mesh 3 to mesh 8, some might have arriving time information in mesh 6 to mesh 9, while some might only have that in mesh 1 to mesh 3. Here shows the distribution of known- and inferred-arriving time of each dailyid. 
+
+```{r}
+agoop_buff_tar <- agoop_buff %>% 
+  # bug: take a sample 
+  select(dailyid, year, month, day, hour, minute) %>% 
+  st_join(tour_mesh) %>% 
+  group_by(dailyid, order) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  mutate(have_log = ifelse(n > 0, 1, 0)) %>% 
+  # bug: why there are NAs? 
+  filter(!is.na(order)) %>% 
+  # only keep the min and max order of each dailyid
+  group_by(dailyid) %>% 
+  summarise(order_min = min(order), order_max = max(order)) %>% 
+  ungroup() %>% 
+  st_drop_geometry() %>% 
+  select(dailyid, order_min, order_max) %>% 
+  pivot_longer(cols = c(order_min, order_max), names_to = "order_attr", values_to = "order_val")
+
+# 对于每个dailyid，填充最小值和最大值之间的序号
+agoop_buff_tar <- 
+  lapply(unique(agoop_buff_tar$dailyid), 
+         function(x) {
+           x <- agoop_buff_tar %>% filter(dailyid == x)
+           x_fill <- data.frame(
+             dailyid = unique(x$dailyid), 
+             order = min(x$order_val) : max(x$order_val)
+           )
+         })
+agoop_buff_tar <- do.call(rbind, agoop_buff_tar)
+
+ggplot(agoop_buff_tar) + 
+  geom_tile(aes(x = as.factor(order), y = dailyid, fill = 1)) + 
+  theme(axis.text.y = element_blank())
+```
+
+Then I checked the number of arriving time in each mesh, and found that mesh 5, 6, 7, and 8 have most arriving time values, so we can compare the time lags of every two cars in those meshes. 
+
+```{r}
+agoop_buff_tar %>% 
+  group_by(order) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  ggplot() + 
+  geom_col(aes(as.factor(order), n))
+```
+
+Let's take mesh 5 as an example. That is the original results of the time lag between every two cars. 
+
+```{r}
+# focus on mesh of order 5, 6, 7, and 8 since they have most log data (including infered ones)
+# bug: take mesh order 5 as an example
+tar_dailyid <- agoop_buff_tar %>% 
+  filter(order == 5) %>% 
+  pull(dailyid) %>% 
+  unique
+agoop_buff_timelag <- 
+  agoop_buff %>% 
+  filter(dailyid %in% tar_dailyid) %>% 
+  # bug: only use the first time value when a dailyid enters a mesh
+  select(dailyid, year, month, day, hour, minute) %>% 
+  st_join(tour_mesh) %>% 
+  filter(!is.na(order)) %>% 
+  mutate(time = 60 * hour + minute) %>% 
+  # 保留每个dailyid进入一个mesh的第一个记录
+  arrange(dailyid, order, year, month, day, time) %>% 
+  group_by(dailyid, order) %>% 
+  mutate(rownum = row_number()) %>% 
+  filter(rownum == 1) %>% 
+  st_drop_geometry() %>% 
+  # 重构time：把月和日都加进去，因为可能存在跨夜晚12点的情况
+  mutate(datetime = as_datetime(paste0(year, "-", month, "-", day, " ", hour, ":", minute, ":00")))
+# 进行插值，补全中间缺失的时间
+# function: interpolate the time staying in a mesh linearly 
+# input: a data.frame indicating the stay-time of a dailyid in each mesh along the trip road. The data.frame should include the columns: dailyid, date, order, time, geometry. 
+# bug: dailyid column is not complete 
+# bug: if the location of time 2 is futher than the location of time 1 due to higher uncertainty, that causes problem
+# bug: should change the comments
+line_interp <- function(tar_dailyid) {
+  x <- agoop_buff_timelag %>% 
+    filter(dailyid == tar_dailyid) %>% 
+    arrange(order) %>% 
+    select(dailyid, order, datetime)
+  
+  if(nrow(x) != 1) {
+    know_val_order <- x$order
+    # 用于存储结果的列表
+    res <- vector("list", length = (length(know_val_order) - 1))
+    # 先将原始数据分成几段
+    for (i in 1 : (length(know_val_order)-1)) {
+      res_know <- x %>% filter(order >= know_val_order[i] & order <= know_val_order[i+1])
+      diff <- (res_know$datetime[1] - res_know$datetime[2]) /
+        (res_know$order[1] - res_know$order[2])
+      res[[i]] <- data.frame(
+        dailyid = unique(res_know$dailyid), 
+        order = res_know$order[1] : res_know$order[2]
+      ) %>% 
+        left_join(res_know)
+      res[[i]]$diff <- diff
+      res[[i]]$num <- 0 : (nrow(res[[i]]) - 1)
+      res[[i]]$start_datetime <- res_know$datetime[1]
+      res[[i]]$datetime <- res[[i]]$start_datetime + res[[i]]$diff * res[[i]]$num
+    }
+    # combine the results
+    res <- do.call(rbind, res) %>% 
+      select(dailyid, order, datetime)
+  } else {
+    res <- x %>% select(order, datetime, dailyid)
+  }
+  return(res)
+}
+# bug: the result of the function is the time when the target dailyid arrives each mesh - the time can exceed the night time - e.g., someone might stay there from 14:00 to 1:00 (am) according to the results 
+agoop_buff_timelag_res <- 
+  lapply(unique(agoop_buff_timelag$dailyid), line_interp) 
+
+# test
+# lapply(agoop_buff_timelag_res, function(x) plot(x$datetime))
+
+agoop_buff_timelag_res <- do.call(rbind, agoop_buff_timelag_res)
+agoop_buff_timelag_res <- agoop_buff_timelag_res %>% 
+  distinct() %>% 
+  filter(order == 5) %>% 
+  arrange(order, datetime)
+View(agoop_buff_timelag_res)
+knitr::kable(agoop_buff_timelag_res)
+```
+
+I eliminated the time lag larger than 6 hours. There are only a few car interactions with time lag smaller than 6 hours. 
+
+```{r}
+agoop_buff_timelag_res$datetime_pre <- lag(agoop_buff_timelag_res$datetime)
+agoop_buff_timelag_res <- agoop_buff_timelag_res %>% 
+  mutate(time_diff = datetime - datetime_pre) %>% 
+  # 如果超过几个小时就没必要统计了
+  # bug: 这个时长需要根据研究目的调整，目前只是随便定一个
+  filter(time_diff < 10*60*60)
+knitr::kable(agoop_buff_timelag_res)
+```
+
+## Next? 
+
+We can apply that analysis to other area, but if we want to do that, we need to get the potential rabbit habitat first - it is only meaningful if we apply that to a habitat. 
+
+And as discussed with Hsu-san, I will try to make a speed-hot-map later. 
