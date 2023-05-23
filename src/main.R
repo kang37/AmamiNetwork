@@ -1,5 +1,5 @@
 # Statement ----
-# The code is used for Fujisan valuation project.
+# The code is used for Amami rabbit project.
 
 # Package ----
 library(jmastats)
