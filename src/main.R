@@ -93,7 +93,8 @@ weather <- do.call(rbind, weather)
 amami <- st_read(dsn = "data_raw/KagoshimaAdmin/N03-180101_46_GML",
                  layer = "N03-18_46_180101") %>%
   rename(citycode = N03_007) %>%
-  filter(citycode == 46222) %>%
+  # cities (villiges) in Amamioshima island
+  filter(citycode %in% c(46222, 46527, 46523, 46524, 46525)) %>%
   st_union() %>%
   st_sf()
 
