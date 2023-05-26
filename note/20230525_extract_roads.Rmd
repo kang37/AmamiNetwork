@@ -1,0 +1,159 @@
+---
+title: "Extract roads"
+output: html_document
+date: "2023-05-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+What we care most from the Agoop data is the time lag between every two cars in our real world. 
+However, the problem is that to calculate the time lag, we need at least two cars (obviously), while the maximum number of cars in one day is only 3 (the worse is that most of the numbers are 1, which means we can't get the time lag at all). 
+Regarding this, we want to apply the code to other road to see if we can catch more cars. 
+
+## Conclusion First
+
+Still, bad new, for the other roads, there are not enough cars either. 
+
+## Details
+
+Basically, the data analysis flow is like this: 
+get the Agoop data within each road, and see how many unique dailyid there are. 
+
+The first step is to get the range of the roads based on the *.gpx files (track points files from GPS). There are 7 roads, but 1 ("津名久林道") had been excluded before the rabbit model analysis, so only 6 roads remains, and they are (one road, one color): 
+
+```{r}
+mapview(gpx_dt_sub, zcol = "road", lwd = 0.1, alpha = 0.5, cex = 0.2)
+```
+
+Since for a road, there are more than one track files (because there are more than one time experiments for one road), I also check if the track points of different experiment trials are the same, and the answer turns out to be yes. 
+
+```{r results='hide'}
+gpx_dt_sub %>%
+  filter(road == "マテリア線") %>%
+  mapview(zcol = "track_file", alpha.region = 0.1, lwd = 0.1, alpha = 0.2, cex = 3)
+```
+
+![](rp1.png)
+
+```{r results='hide'}
+gpx_dt_sub %>%
+  filter(road == "大名線") %>%
+  mapview(zcol = "track_file", alpha.region = 0.1, lwd = 0.1, alpha = 0.2, cex = 3)
+```
+
+![](rp2.png)
+
+```{r results='hide'}
+gpx_dt_sub %>%
+  filter(road == "大棚名音線-大金久線") %>%
+  mapview(zcol = "track_file", alpha.region = 0.1, lwd = 0.1, alpha = 0.2, cex = 3)
+```
+
+![](rp3.png)
+
+```{r results='hide'}
+gpx_dt_sub %>%
+  filter(road == "スタルマタ") %>%
+  mapview(zcol = "track_file", alpha.region = 0.1, lwd = 0.1, alpha = 0.2, cex = 3)
+```
+
+![](rp4.png)
+
+```{r results='hide'}
+gpx_dt_sub %>%
+  filter(road == "三太郎東") %>%
+  mapview(zcol = "track_file", alpha.region = 0.1, lwd = 0.1, alpha = 0.2, cex = 3)
+```
+
+![](rp5.png)
+
+```{r results='hide'}
+gpx_dt_sub %>%
+  filter(road == "三太郎西") %>%
+  mapview(zcol = "track_file", alpha.region = 0.1, lwd = 0.1, alpha = 0.2, cex = 3)
+```
+
+![](rp6.png)
+
+Now we can make the lines for the roads based on the points. Since 三太郎 road has been analyzed, here we exclude them, and only 4 roads reamains. 
+
+```{r results='hide'}
+gpx_dt_sub %>%
+  filter(road == "マテリア線") %>%
+  mapview(alpha.region = 0.01, lwd = 0.1, alpha = 0.5, cex = 5) +
+  mapview(
+    make_road_line(
+      "マテリア線", "track_18-01-23 221556_GPSmap62SJ.gpx", 1, "top"
+    ),
+    color = "red"
+  )
+gpx_dt_sub %>%
+  filter(road == "大名線") %>%
+  mapview(alpha.region = 0.01, lwd = 0.1, alpha = 0.2, cex = 5) +
+  mapview(
+    make_road_line(
+      "大名線", "track_18-02-12 205150_GPSmap62SJ.gpx", 1, "top"
+    ),
+    color = "red"
+  )
+gpx_dt_sub %>%
+  filter(road == "大棚名音線-大金久線") %>%
+  mapview(alpha.region = 0.01, lwd = 0.1, alpha = 0.2, cex = 5) +
+  mapview(
+    make_road_line(
+      "大棚名音線-大金久線","track_18-01-10 091522 PM_GPSmap62SJ.gpx", 1, "top"
+    ),
+    color = "red"
+  )
+gpx_dt_sub %>%
+  filter(road == "スタルマタ") %>%
+  mapview(alpha.region = 0.01, lwd = 0.1, alpha = 0.2, cex = 5) +
+  mapview(
+    make_road_line(
+      "スタルマタ", "171120_track_HA.GPX", 0.5, "top"
+    ),
+    color = "red"
+  ) %>% print()
+```
+
+![](rl1.png)
+![](rl2.png)
+![](rl3.png)
+![](rl4.png)
+Make 100-meter buffer zones based on the road lines: 
+
+```{r}
+do.call(rbind, other_road_buff) %>% 
+  mapview()
+```
+
+Then for each road buffer zone, I kept the Agoop log points inside the buffer zone, and calculated the number of logs (one dailyid, one color) and unique dailyid (basically the number of cars) per day. 
+
+The order of the roads: 
+
+```{r}
+tar_file_road
+```
+
+The number of logs: 
+
+```{r}
+res_nlog
+```
+
+The number of dailyids: 
+
+```{r}
+res_ndailyid
+```
+
+Then maybe we wonder: what if we expand the buffer zone? 
+So, that is the numebr of dailyid when buffer zone is expand to 200 meters. 
+
+```{r}
+res_ndailyid_200
+```
