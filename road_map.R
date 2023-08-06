@@ -46,4 +46,5 @@ tm_shape(amami_box) +
   tm_layout(
     legend.position = c("left", "bottom"),
     legend.bg.color = "white", legend.frame = "grey"
-  )
+  ) +
+  tm_scale_bar(bg.color = "white")
