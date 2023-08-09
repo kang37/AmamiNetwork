@@ -66,12 +66,17 @@ road_map <- rbind(
     mutate(road = "三太郎西")
 ) %>%
   left_join(
-    data.frame(
-      road = c("スタルマタ", "マテリア線", "大名線", "大棚名音線-大金久線",
-               "三太郎東", "三太郎西"),
-      # Bug: The English names of the roads?
-      road_en = c(1:6)
-    )
+    c(
+      "スタルマタ", "City road Sutarumata line",
+      "マテリア線", "Village road Materia line",
+      "三太郎東", "City road Santaro-Higashi line",
+      "三太郎西", "City road Santaro-Nishi line",
+      "大名線", "Forest road Daimyo line",
+      "大棚名音線-大金久線", "Village road OhdanaNaon-Ohganeku lines"
+    ) %>%
+      matrix(nrow = 6, byrow = TRUE) %>%
+      data.frame() %>%
+      rename_with(~ c("road", "road_en"))
   )
 mapview(road_map)
 
@@ -86,12 +91,15 @@ amami_box <-
   st_crop(xmin = 129.28, xmax = 129.52, ymin = 28.18, ymax = 28.43)
 
 # Plot road map.
+png("data_edited/amami_rabbit_road.png", width = 1000, height = 1000, res = 300)
 tm_shape(amami_box) +
   tm_polygons() +
   tm_shape(road_map) +
-  tm_lines(col = "road", lwd = 2, palette = "Set2", title.col = "Road") +
+  tm_lines(col = "road_en", lwd = 2, palette = "Set2", title.col = "Road") +
   tm_layout(
     legend.position = c("left", "bottom"),
-    legend.bg.color = "white", legend.frame = "grey"
+    legend.bg.color = "white", legend.frame = "grey", legend.width = 0.8,
+    legend.text.size = 0.5
   ) +
-  tm_scale_bar(bg.color = "white")
+  tm_scale_bar(position = c("left", "top"))
+dev.off()
