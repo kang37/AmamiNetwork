@@ -6,5 +6,6 @@
 .DS_Store
 .RDataTmp
 data_raw/
+data_edited/
 file/
 Icon
