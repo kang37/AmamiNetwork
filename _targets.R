@@ -79,7 +79,13 @@ list(
     lapply(1:12, function(x) {
       jma_collect(item = "daily", block_no = 47909, year = 2018, month = x)
     }) %>%
-      do.call(rbind, .)
+      do.call(rbind, .) %>%
+      unnest(cols = c(
+        pressure, precipitation, temperature, humidity, wind, sunshine,
+        snow, weather_time
+      )) %>%
+      rename_with(~ gsub(")", "", .x)) %>%
+      rename_with(~ gsub("\\(", "_", .x))
   ),
   # GIS layer ----
   # Amami boundary
@@ -94,6 +100,19 @@ list(
       st_sf()
   ),
   # Analysis ----
+  # Monthly change of dailyid number of original data.
+  # Bug: takes too long.
+  tar_target(
+    plt_agoop_raw,
+    gis_agoop %>%
+      select(dailyid, month) %>%
+      distinct() %>%
+      group_by(month) %>%
+      summarise(num = n()) %>%
+      ungroup() %>%
+      ggplot() +
+      geom_col(aes(month, num))
+  ),
   # Kinsakubaru range.
   # Bug: Rough range.
   tar_target(
@@ -118,12 +137,6 @@ list(
       ungroup() %>%
       arrange(-n_log)
   ),
-  # Agoop of the dailyid with the most logs.
-  tar_target(
-    gis_agoop_head_pre_pre,
-    gis_agoop %>%
-      filter(dailyid %in% gis_agoop_lognum$dailyid[1:10000])
-  ),
   # Function to get the relationship of each point in a multi-points object and a polygon.
   tar_target(
     get_inter_id,
@@ -134,34 +147,68 @@ list(
       return(res)
     }
   ),
+  # Boundary of target area.
   tar_target(
-    inter_res,
-    get_inter_id(gis_agoop_head_pre_pre, kinsakubaru)
+    kinsakubaru_coord,
+    st_coordinates(kinsakubaru) %>%
+      as.data.frame() %>%
+      tibble() %>%
+      select(X, Y) %>%
+      rename_with(~ c("long", "lat"))
+  ),
+  tar_target(
+    kinsakubaru_boundary,
+    data.frame(
+      long_min = min(kinsakubaru_coord$long),
+      long_max = max(kinsakubaru_coord$long),
+      lat_min = min(kinsakubaru_coord$lat),
+      lat_max = max(kinsakubaru_coord$lat)
+    )
+  ),
+  # Remove the logs out of the target area boundary.
+  tar_target(
+    gis_agoop_screen,
+    cbind(
+      gis_agoop,
+      st_coordinates(gis_agoop) %>%
+        as.data.frame() %>%
+        select(X, Y) %>%
+        rename_with(~ c("long", "lat"))
+    ) %>%
+      filter(
+        long >= kinsakubaru_boundary$long_min,
+        long <= kinsakubaru_boundary$long_max,
+        lat >= kinsakubaru_boundary$lat_min,
+        lat <= kinsakubaru_boundary$lat_max
+      )
   ),
   # Add information column of the intersect relationship between the sample points data and the Kinsakubaru polygon.
+  # Bug: Takes about 5 hours.
   tar_target(
-    gis_agoop_head_pre,
-    gis_agoop_head_pre_pre %>%
-      mutate(inter = inter_res)
+    gis_agoop_inter,
+    gis_agoop_screen %>%
+      mutate(inter = get_inter_id(gis_agoop_screen, kinsakubaru))
   ),
   tar_target(
-    gis_agoop_head_inter,
-    gis_agoop_head_pre %>%
+    gis_agoop_inter_dailyid,
+    gis_agoop_inter %>%
       group_by(dailyid) %>%
       summarise(inter = sum(inter) > 0) %>%
       ungroup() %>%
-      filter(inter)
+      filter(inter) %>%
+      pull(dailyid)
   ),
   tar_target(
-    gis_agoop_head,
-    gis_agoop_head_pre %>%
-      filter(dailyid %in% gis_agoop_head_inter$dailyid) %>%
+    gis_agoop_kinsakubaru,
+    gis_agoop_inter %>%
+      filter(dailyid %in% gis_agoop_inter_dailyid) %>%
       mutate(time = hour * 60 + minute) %>%
-      arrange(month, day, dailyid, time)
+      arrange(month, day, dailyid, time) %>%
+      # Add holiday information.
+      mutate(date = as_date(paste(year, month, day, sep = "-"))) %>%
+      left_join(holiday, by = "date") %>%
+      # Add weather column.
+      left_join(weather, by = "date")
   )
 )
-
-
-
-
 
