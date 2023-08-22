@@ -55,7 +55,8 @@ tar_load(plt_agoop_raw)
 plt_agoop_raw
 
 # Monthly change of visitor number.
-gis_agoop_kinsakubaru_time %>%
+plt_mth_num <-
+  gis_agoop_kinsakubaru_time %>%
   st_drop_geometry() %>%
   select(dailyid, month) %>%
   distinct() %>%
@@ -63,7 +64,8 @@ gis_agoop_kinsakubaru_time %>%
 # Conclusion: the season variety of the visitors to target area and that of the island (not exclude the local peopl) are different.
 
 # Monthly change of stay time.
-gis_agoop_kinsakubaru_time %>%
+plt_mth_time <-
+  gis_agoop_kinsakubaru_time %>%
   st_drop_geometry() %>%
   select(dailyid, month, time_diff) %>%
   group_by(month, dailyid) %>%
@@ -86,14 +88,16 @@ gis_agoop_kinsakubaru_num <-
   left_join(holiday, by = "date") %>%
   # Add weather column.
   left_join(weather, by = "date")
-gis_agoop_kinsakubaru_num %>%
+plt_holiday_num <-
+  gis_agoop_kinsakubaru_num %>%
   mutate(holiday = case_when(
     is.na(holiday_name) ~ FALSE,
     TRUE ~ TRUE
   )) %>%
   ggplot() +
   geom_point(aes(date, num, col = holiday), alpha = 0.6)
-gis_agoop_kinsakubaru_num %>%
+plt_weather_num <-
+  gis_agoop_kinsakubaru_num %>%
   mutate(holiday = case_when(
     is.na(holiday_name) ~ FALSE,
     TRUE ~ TRUE
@@ -113,7 +117,8 @@ gis_agoop_kinsakubaru_time <- gis_agoop_kinsakubaru_time %>%
   # Add weather column.
   left_join(weather, by = "date")
 # Holiday ~ stay time.
-gis_agoop_kinsakubaru_time %>%
+plt_holiday_time <-
+  gis_agoop_kinsakubaru_time %>%
   mutate(holiday = case_when(
     is.na(holiday_name) ~ FALSE,
     TRUE ~ TRUE
@@ -121,7 +126,8 @@ gis_agoop_kinsakubaru_time %>%
   ggplot() +
   geom_point(aes(date, time_diff, col = holiday), alpha = 0.5)
 # Weather ~ stay time.
-gis_agoop_kinsakubaru_time %>%
+plt_weather_time <-
+  gis_agoop_kinsakubaru_time %>%
   mutate(holiday = case_when(
     is.na(holiday_name) ~ FALSE,
     TRUE ~ TRUE
