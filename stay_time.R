@@ -115,7 +115,7 @@ np_amami <- np_amami_pre %>%
   mutate(area = st_area(.), .after = "id")
 
 names(gis_agoop_pre) <- np_amami_pre$id
-gis_agoop_tar <- gis_agoop_pre[!do.call(c, lapply(gis_agoop_pre, is.null))]
+gis_agoop_tar <- gis_agoop_pre[!do.call("c", lapply(gis_agoop_pre, is.null))]
 gis_agoop_tar <-
   lapply(
     as.character(st_drop_geometry(np_amami)[["id"]]),
