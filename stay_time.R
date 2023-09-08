@@ -185,7 +185,6 @@ mapview(np_amami, zcol = "地域区")
 
 # What if we add area to the stay time?
 stay_time_area <- stay_time %>%
-  left_join(select(np_amami, id, area), by = c("area_id" = "id")) %>%
   mutate(stay_time_pa = time_diff / area)
 library(units)
 stay_time_area %>%
