@@ -90,6 +90,7 @@ get_agoop_target <- function(id_x) {
     # The target dailyid.
     gis_agoop_inter_dailyid <-
       gis_agoop_inter %>%
+      st_drop_geometry() %>%
       group_by(dailyid) %>%
       summarise(inter = sum(inter) > 0) %>%
       ungroup() %>%
