@@ -105,7 +105,7 @@ get_agoop_target <- function(id_x) {
   }
 }
 
-# Bug: Takes about 45 min.
+# Bug: Takes about 1.5 min.
 gis_agoop_pre <- lapply(st_drop_geometry(np_amami_pre)[["id"]], get_agoop_target)
 # Need to further remove the area with no logs.
 
