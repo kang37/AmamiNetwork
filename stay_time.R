@@ -110,7 +110,7 @@ gis_agoop_pre <- lapply(st_drop_geometry(np_amami_pre)[["id"]], get_agoop_target
 # Need to further remove the area with no logs.
 
 np_amami <- np_amami_pre %>%
-  mutate(have_log = !do.call(c, lapply(gis_agoop_pre, is.null))) %>%
+  mutate(have_log = !do.call("c", lapply(gis_agoop_pre, is.null))) %>%
   filter(have_log) %>%
   mutate(area = st_area(.), .after = "id")
 
