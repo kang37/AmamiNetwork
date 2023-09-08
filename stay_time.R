@@ -179,7 +179,7 @@ ggplot(stay_time) +
   geom_histogram(aes(time_diff, fill = area_cls)) +
   facet_wrap(.~ area_id, scales = "free")
 ggplot(stay_time) +
-  geom_point(aes(month, time_diff), alpha = 0.5) +
+  geom_point(aes(month, time_diff, col = area_cls), alpha = 0.5) +
   facet_wrap(.~ area_id, scales = "free")
 mapview(np_amami, zcol = "地域区")
 
