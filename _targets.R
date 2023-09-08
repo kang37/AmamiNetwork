@@ -105,6 +105,7 @@ list(
   tar_target(
     plt_agoop_raw,
     gis_agoop %>%
+      st_drop_geometry() %>%
       select(dailyid, month) %>%
       distinct() %>%
       group_by(month) %>%
