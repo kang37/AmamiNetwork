@@ -174,7 +174,8 @@ stay_time <- lapply(np_amami$id, get_stay_time) %>%
   do.call(rbind, .) %>%
   select(-time_pre) %>%
   left_join(st_drop_geometry(np_amami), by = c("area_id" = "id")) %>%
-  rename(area_cls = 地域区)
+  rename(area_cls = 地域区) %>%
+  mutate(stay_time_pa = time_diff / area)
 ggplot(stay_time) +
   geom_histogram(aes(time_diff, fill = area_cls)) +
   facet_wrap(.~ area_id, scales = "free")
@@ -183,20 +184,18 @@ ggplot(stay_time) +
   facet_wrap(.~ area_id, scales = "free")
 mapview(np_amami, zcol = "地域区")
 
-# What if we add area to the stay time?
-stay_time_area <- stay_time %>%
-  mutate(stay_time_pa = time_diff / area)
+# What about per area stay time?
 library(units)
-stay_time_area %>%
+stay_time %>%
   arrange(area_cls) %>%
   mutate(area_id = factor(area_id, levels = unique(area_id))) %>%
   ggplot() +
   geom_histogram(aes(stay_time_pa, fill = area_cls)) +
   facet_wrap(.~ area_id, scales = "free")
-ggplot(stay_time_area) +
+ggplot(stay_time) +
   geom_boxplot(aes(area_cls, log(stay_time_pa)))
 
-stay_time_area %>%
+stay_time %>%
   group_by(area_id, month, day, area_cls) %>%
   summarise(n = length(unique(dailyid))) %>%
   ungroup() %>%
