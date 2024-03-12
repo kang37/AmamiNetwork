@@ -67,12 +67,12 @@ road_map <- rbind(
 ) %>%
   left_join(
     c(
-      "スタルマタ", "City road Sutarumata line",
-      "マテリア線", "Village road Materia line",
-      "三太郎東", "City road Santaro-Higashi line",
-      "三太郎西", "City road Santaro-Nishi line",
-      "大名線", "Forest road Daimyo line",
-      "大棚名音線-大金久線", "Village road OhdanaNaon-Ohganeku lines"
+      "スタルマタ", "1: City road Sutarumata line",
+      "マテリア線", "2: Village road Materia line",
+      "三太郎西", "3: City road Santaro-Nishi line",
+      "三太郎東", "4: City road Santaro-Higashi line",
+      "大棚名音線-大金久線", "5: Village road OhdanaNaon-Ohganeku line",
+      "大名線", "6: Forest road Daimyo line"
     ) %>%
       matrix(nrow = 6, byrow = TRUE) %>%
       data.frame() %>%
@@ -91,7 +91,10 @@ amami_box <-
   st_crop(xmin = 129.28, xmax = 129.52, ymin = 28.18, ymax = 28.43)
 
 # Plot road map.
-png("data_edited/amami_rabbit_road.png", width = 1000, height = 1000, res = 300)
+png(
+  paste0("data_edited/amami_rabbit_road_", Sys.Date(), ".png"),
+  width = 1000, height = 1000, res = 300
+)
 tm_shape(amami_box) +
   tm_polygons() +
   tm_shape(road_map) +
