@@ -189,9 +189,10 @@ library(units)
 stay_time %>%
   arrange(area_cls) %>%
   mutate(area_id = factor(area_id, levels = unique(area_id))) %>%
+  mutate(stay_time_pa = stay_time_pa * 10000) %>%
   ggplot() +
-  geom_histogram(aes(stay_time_pa, fill = area_cls)) +
-  facet_wrap(.~ area_id, scales = "free")
+  geom_histogram(aes(log(stay_time_pa), fill = area_cls)) +
+  facet_wrap(.~ area_id, scales = "free_y")
 ggplot(stay_time) +
   geom_boxplot(aes(area_cls, log(stay_time_pa)))
 
@@ -205,4 +206,7 @@ stay_time %>%
 # Why the 特別保護地域 (area_id == 23) has so many visitors?
 mapview(np_amami %>% filter(id == 23)) +
   mapview(gis_agoop_tar %>% filter(area_id == 23), zcol = "month")
+
+mapview(np_amami %>% filter(id == 309)) +
+  mapview(gis_agoop_tar %>% filter(area_id == 309), zcol = "month")
 
