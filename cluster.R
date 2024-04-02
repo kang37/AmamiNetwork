@@ -76,18 +76,23 @@ city_code_in_amami <-
 gis_agoop_smp_coord <- gis_agoop_smp %>%
   # Bug: Need to eliminate local residents for the raw data?
   filter(home_citycode %in% city_code_in_amami) %>%
-  st_transform(4326) %>%
-  st_coordinates() %>%
-  matrix(ncol = 2) %>%
-  data.frame() %>%
+  st_transform(4326)
+gis_agoop_smp_coord <- gis_agoop_smp_coord %>%
+  cbind(
+    st_drop_geometry(gis_agoop_smp_coord),
+    st_coordinates(gis_agoop_smp_coord) %>%
+      matrix(ncol = 2) %>%
+      data.frame() %>%
+      tibble() %>%
+      rename_with(~ c("lon", "lat"))
+  ) %>%
   tibble() %>%
-  rename_with(~ c("lon", "lat")) %>%
   # Bug: Eliminate logs out of the island. Should have done that for the raw data.
   filter(lat > 27.06, lat < 28.66)
 # Bug: Need to determine minPts and eps first, manually. If k is larger, the calc is slower.
-dbscan::kNNdistplot(gis_agoop_smp_coord,k = 300)
+dbscan::kNNdistplot(gis_agoop_smp_coord[c("lon", "lat")],k = 300)
 abline(h = 0.01, lty = 2, col = rainbow(1), main = "eps optimal value")
-cluster_res <- dbscan(gis_agoop_smp_coord, eps = 0.01, minPts = 300)
+cluster_res <- dbscan(gis_agoop_smp_coord[c("lon", "lat")], eps = 0.01, minPts = 300)
 cluster_res
 plot(
   gis_agoop_smp_coord$lon, gis_agoop_smp_coord$lat,
@@ -109,4 +114,3 @@ ggplot() +
     data = filter(gis_agoop_smp_coord, cluster != 0),
     aes(col = as.character(cluster)), alpha = 0.5
   )
-
