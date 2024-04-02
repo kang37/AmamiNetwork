@@ -77,7 +77,7 @@ gis_agoop_smp_coord <- gis_agoop_smp %>%
   # Bug: Need to eliminate local residents for the raw data?
   filter(home_citycode %in% city_code_in_amami) %>%
   st_transform(4326)
-gis_agoop_smp_coord <- gis_agoop_smp_coord %>%
+gis_agoop_smp_coord <-
   cbind(
     st_drop_geometry(gis_agoop_smp_coord),
     st_coordinates(gis_agoop_smp_coord) %>%
