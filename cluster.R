@@ -274,57 +274,58 @@ seg_time_od %>%
   geom_text(aes(label = n), col = "white")
 
 # Abstract trajectory.
-# Function to id segments according to if a statement is "changed" or "not-changed".
-id_seg <- function(x) {
-  # Order x by id, time, etc.
-  x_ordered <- arrange(x, dailyid, seg_id)
-  # Id if the target statement is changed or not.
-  x_chg <- x_ordered %>%
-    mutate(
-      new_dailyid = c(dailyid != lag(dailyid)),
-      new_cluster_id = c(cluster_id != lag(cluster_id)),
-      new_dailyid = case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
-      new_cluster_id = case_when(is.na(new_cluster_id) ~ TRUE, TRUE ~ new_cluster_id)
-    ) %>%
-    filter(new_dailyid + new_cluster_id >= 1) %>%
-    group_by(dailyid) %>%
-    mutate(segment_id = row_number()) %>%
-    ungroup()
-  # Add segment information to original data.
-  res <- x_ordered %>%
-    left_join(x_chg, by = c("dailyid", "seg_id", "cluster_id")) %>%
-    fill(segment_id)
+# First simplification: a "vc1-r-vc1" or "vc1-rc2-vc1" will be simplified as "vc1-vc1", then further simplified as "vc1".
+
+# Function to abstract a trajectory string. For example, a "vc1-vc2-vc1" is simplified as "0-1-0".
+map_traj <- function(x) {
+  x_split <- strsplit(x, "") %>% unlist()
+  x_non_duplicate <- duplicated(x_split)
+  x_map <- data.frame(ori = x_split[!x_non_duplicate]) %>%
+    mutate(new = row_number() - 1)
+  x_replace <- data.frame(ori = x_split) %>%
+    left_join(x_map, by = "ori")
+  res <- paste0(x_replace$new, collapse = "")
   return(res)
 }
 
-seg_time_simp1 <- id_seg(seg_time) %>%
-  select(dailyid, segment_id, cluster_id) %>%
+# seg_time is logs of stay time larger than 15 min. Bug: Should remove the noise (cluster = 0)?
+traj_simp <- seg_time %>%
+  arrange(dailyid, seg_id) %>%
+  mutate(
+    # If it is a new dailyid, or if it enters a new cluster.
+    new_dailyid = c(dailyid != lag(dailyid)),
+    new_cluster_id = c(cluster_id != lag(cluster_id)),
+    new_dailyid =
+      case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
+    new_cluster_id =
+      case_when(is.na(new_cluster_id) ~ TRUE, TRUE ~ new_cluster_id),
+    # If the answer is yes to either question, then the state is changed.
+    state_chg = c(new_dailyid | new_cluster_id)
+  ) %>%
+  # Every time the state changes, assign a new visit ID. So for the non-changed rows, assgin NA then fill them with the changed visit ID.
+  group_by(dailyid, state_chg) %>%
+  mutate(visit_id = row_number()) %>%
+  ungroup() %>%
+  mutate(visit_id = case_when(
+    state_chg ~ visit_id, !state_chg ~ NA
+  )) %>%
+  fill(visit_id) %>%
+  # Make trajectory string.
+  select(dailyid, visit_id, cluster_id) %>%
   distinct() %>%
   mutate(cluster_id = as.character(cluster_id)) %>%
   group_by(dailyid) %>%
-  summarise(cluster_id = paste0(cluster_id, collapse = ""))
-head(seg_time_simp1$cluster_id)
-table(seg_time_simp1$cluster_id) %>%
+  summarise(traj_1 = paste0(cluster_id, collapse = "")) %>%
+  ungroup() %>%
+  # Further abstract trajectory. For example, a "c1-c2-c1" will be "0-1-0".
+  mutate(traj_2 = lapply(traj_1, map_traj) %>% unlist())
+
+table(traj_simp$traj_1) %>%
   data.frame() %>%
   tibble() %>%
   arrange(-Freq)
 
-# Further abstract trajectory. For example, "c2-c1-c2" is simplified to "0-1-0".
-seg_id2 <- id_seg(seg_time) %>%
-  select(dailyid, cluster_id) %>%
-  group_by(dailyid) %>%
-  mutate(cluster_duplicate = duplicated(cluster_id)) %>%
-  filter(!cluster_duplicate) %>%
-  mutate(cluster_id_simp2 = row_number() - 1)
-View(seg_id2)
-seg_time_simp2 <- id_seg(seg_time) %>%
-  select(dailyid, segment_id, cluster_id) %>%
-  left_join(seg_id2) %>%
-  mutate(cluster_id_simp2 = as.character(cluster_id_simp2)) %>%
-  group_by(dailyid) %>%
-  summarise(cluster_id_simp2 = paste0(cluster_id_simp2, collapse = ""))
-head(seg_time_simp2$cluster_id_simp2)
-table(seg_time_simp2$cluster_id_simp2) %>%
+table(traj_simp$traj_2) %>%
   data.frame() %>%
   tibble() %>%
   arrange(-Freq)
