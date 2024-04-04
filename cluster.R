@@ -216,3 +216,117 @@ lapply(
   ggplot(aes(as.character(cluster_id), stay_time)) +
   geom_boxplot() +
   geom_jitter()
+
+# Bug: Take 15 minutes as a "visit", less than 15 minutes is "pass".
+seg_time <- lapply(
+  0:10,
+  function(cluster_id) {
+    seg %>%
+      filter(cluster == cluster_id) %>%
+      group_by(dailyid, seg_id) %>%
+      summarise(stay_time = max(time) - min(time), .groups = "drop") %>%
+      mutate(cluster_id = cluster_id)
+  }
+) %>%
+  bind_rows() %>%
+  # Only keep the "visit".
+  # Bug: How to convert unit? If a dailyid only has 2 logs in a cluster, the stay time might be very low.
+  filter(stay_time > 900)
+# Bug: An assumption - visitors' next destination depends on last destination.
+
+# Most visitors stay in a cluster.
+seg_time %>%
+  group_by(dailyid) %>%
+  summarise(cluster_n = n(), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(cluster_n))
+
+# In each mode, what is the structure?
+# Bug: Take cluster 1 as an example.
+seg_time %>%
+  left_join(
+    seg_time %>%
+      group_by(dailyid) %>%
+      summarise(cluster_n = n(), .groups = "drop") %>%
+      filter(cluster_n == 1),
+    by = "dailyid"
+  ) %>%
+  filter(!is.na(cluster_n)) %>%
+  pull(seg_id) %>%
+  table()
+
+# Movement matrix.
+# Has the data.frame been arranged in order?
+# Bug: What if a dailyid mostly stay in a cluster, but s/he goes to the edge usually? "c1-edge-c1-edge-c1". Should merge it as "c1-c1-c1" or "c1"?
+seg_time_od <- seg_time %>%
+  group_by(dailyid) %>%
+  mutate(
+    destination = cluster_id, origin = lag(cluster_id)
+  ) %>%
+  # Bug: It is equal to that we remove the dailyid who stays in a cluster for the whole day.
+  filter(!is.na(origin))
+# Most movements are from c2 to c2, followed by c1-c2, c1-c1, c2-c8, c10-c10. c2 is an important center.
+seg_time_od %>%
+  group_by(origin, destination) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  ggplot(aes(origin, destination)) +
+  geom_tile(aes(fill = log(n))) +
+  geom_text(aes(label = n), col = "white")
+
+# Abstract trajectory.
+# Function to id segments according to if a statement is "changed" or "not-changed".
+id_seg <- function(x) {
+  # Order x by id, time, etc.
+  x_ordered <- arrange(x, dailyid, seg_id)
+  # Id if the target statement is changed or not.
+  x_chg <- x_ordered %>%
+    mutate(
+      new_dailyid = c(dailyid != lag(dailyid)),
+      new_cluster_id = c(cluster_id != lag(cluster_id)),
+      new_dailyid = case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
+      new_cluster_id = case_when(is.na(new_cluster_id) ~ TRUE, TRUE ~ new_cluster_id)
+    ) %>%
+    filter(new_dailyid + new_cluster_id >= 1) %>%
+    group_by(dailyid) %>%
+    mutate(segment_id = row_number()) %>%
+    ungroup()
+  # Add segment information to original data.
+  res <- x_ordered %>%
+    left_join(x_chg, by = c("dailyid", "seg_id", "cluster_id")) %>%
+    fill(segment_id)
+  return(res)
+}
+
+seg_time_simp1 <- id_seg(seg_time) %>%
+  select(dailyid, segment_id, cluster_id) %>%
+  distinct() %>%
+  mutate(cluster_id = as.character(cluster_id)) %>%
+  group_by(dailyid) %>%
+  summarise(cluster_id = paste0(cluster_id, collapse = ""))
+head(seg_time_simp1$cluster_id)
+table(seg_time_simp1$cluster_id) %>%
+  data.frame() %>%
+  tibble() %>%
+  arrange(-Freq)
+
+# Further abstract trajectory. For example, "c2-c1-c2" is simplified to "0-1-0".
+seg_id2 <- id_seg(seg_time) %>%
+  select(dailyid, cluster_id) %>%
+  group_by(dailyid) %>%
+  mutate(cluster_duplicate = duplicated(cluster_id)) %>%
+  filter(!cluster_duplicate) %>%
+  mutate(cluster_id_simp2 = row_number() - 1)
+View(seg_id2)
+seg_time_simp2 <- id_seg(seg_time) %>%
+  select(dailyid, segment_id, cluster_id) %>%
+  left_join(seg_id2) %>%
+  mutate(cluster_id_simp2 = as.character(cluster_id_simp2)) %>%
+  group_by(dailyid) %>%
+  summarise(cluster_id_simp2 = paste0(cluster_id_simp2, collapse = ""))
+head(seg_time_simp2$cluster_id_simp2)
+table(seg_time_simp2$cluster_id_simp2) %>%
+  data.frame() %>%
+  tibble() %>%
+  arrange(-Freq)
+# Most visitors goes circle, including 1 or 2 or 3 points circles.
+
