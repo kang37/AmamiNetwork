@@ -86,32 +86,105 @@ gis_agoop_coord <- gis_agoop_coord %>%
 # Bug: Need to determine minPts and eps first, manually. If k is larger, the calc is slower. The following plot takes 2 min.
 # Bug: Take sample for clustering.
 set.seed(1234)
-gis_agoop_coord_sample <-
+gis_agoop_coord_sample_1 <-
   gis_agoop_coord[sample(nrow(gis_agoop_coord), nrow(gis_agoop_coord) / 10), ]
-dbscan::kNNdistplot(gis_agoop_coord_sample[c("lon", "lat")], k = 300)
+dbscan::kNNdistplot(gis_agoop_coord_sample_1[c("lon", "lat")], k = 300)
 abline(h = 0.01, lty = 2, col = rainbow(1), main = "eps optimal value")
 cluster_res <-
-  dbscan(gis_agoop_coord_sample[c("lon", "lat")], eps = 0.01, minPts = 300)
+  dbscan(gis_agoop_coord_sample_1[c("lon", "lat")], eps = 0.01, minPts = 300)
 cluster_res
-plot(
-  gis_agoop_coord_sample$lon, gis_agoop_coord_sample$lat,
-  col = cluster_res$cluster + 1L
-)
-# Eliminate the noise.
-plot(
-  gis_agoop_coord$lon, gis_agoop_coord$lat,
-  col = cluster_res$cluster
-)
 table(cluster_res$cluster)
-# Plot with ggplot.
-gis_agoop_coord_sample <- gis_agoop_coord_sample %>%
-  st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-  mutate(cluster = cluster_res$cluster)
+gis_agoop_coord_sample_1 <- gis_agoop_coord_sample_1 %>%
+  mutate(cluster = cluster_res$cluster) %>%
+  filter(cluster != 0)
 ggplot() +
   geom_sf(data = amami) +
   geom_sf(
-    data = filter(gis_agoop_coord_sample, cluster != 0),
+    data = gis_agoop_coord_sample_1 %>%
+      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant"),
     aes(col = as.character(cluster)), alpha = 0.5
+  )
+
+# Further cluster c1.
+gis_agoop_coord_sample_2 <- gis_agoop_coord_sample %>%
+  # Need to check if the wanted cluster is picked.
+  filter(cluster == 1)
+# ggplot() +
+#   geom_sf(data = amami) +
+#   geom_sf(
+#     data = gis_agoop_coord_sample_2 %>%
+#       st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant"),
+#     aes(col = as.character(cluster)), alpha = 0.5
+#   )
+# dbscan::kNNdistplot(gis_agoop_coord_sample_2[c("lon", "lat")], k = 300)
+# abline(h = 0.01, lty = 2, col = rainbow(1), main = "eps optimal value")
+cluster_res_c1 <-
+  dbscan(gis_agoop_coord_sample_2[c("lon", "lat")], eps = 0.0053, minPts = 300)
+cluster_res_c1
+gis_agoop_coord_sample_2 <- gis_agoop_coord_sample_2 %>%
+  mutate(cluster = cluster_res_c1$cluster) %>%
+  filter(cluster != 0)
+ggplot() +
+  geom_sf(data = amami) +
+  geom_sf(
+    data = gis_agoop_coord_sample_2 %>%
+      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant"),
+    aes(col = as.character(cluster)), alpha = 0.5
+  )
+# Bind results from 2 cluster.
+gis_agoop_coord_sample <-
+  rbind(
+    gis_agoop_coord_sample_2,
+    filter(gis_agoop_coord_sample_1, cluster != 1) %>%
+      mutate(cluster = cluster + length(table(gis_agoop_coord_sample_2$cluster)) - 1)
+  ) %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant")
+
+# Plot with ggplot.
+ggplot() +
+  geom_sf(data = amami) +
+  geom_sf(
+    data = gis_agoop_coord_sample,
+    aes(col = as.character(cluster)), alpha = 0.5
+  ) +
+  geom_sf_label(
+    data =
+      filter(gis_agoop_coord_sample, cluster != 0) %>%
+      group_by(cluster) %>%
+      slice_head(n = 1),
+    aes(col = as.character(cluster), label = cluster), alpha = 0.5
+  )
+ggplot() +
+  # geom_sf(data = amami) +
+  geom_sf(
+    data = gis_agoop_coord_sample %>%
+      group_by(cluster) %>%
+      slice_head(n = 50),
+    aes(col = as.character(cluster)),
+    alpha = 0.1
+  ) +
+  geom_sf_label(
+    data =
+      filter(gis_agoop_coord_sample, cluster != 0) %>%
+      group_by(cluster) %>%
+      slice_head(n = 1),
+    aes(col = as.character(cluster), label = cluster), alpha = 0.5
+  )
+ggplot() +
+  geom_sf(data = amami) +
+  geom_sf(
+    data = gis_agoop_coord_sample %>%
+      group_by(cluster) %>%
+      slice_sample(n = 5),
+    aes(col = as.character(cluster)),
+    alpha = 0.1
+  ) +
+  geom_sf_label(
+    data =
+      filter(gis_agoop_coord_sample, cluster != 0) %>%
+      group_by(cluster) %>%
+      slice_sample(n = 1),
+    aes(col = as.character(cluster), label = cluster), alpha = 0.5
   )
 
 # How to apply to the whole data?
@@ -124,6 +197,4 @@ ggplot() +
 #     data = filter(gis_agoop_coord, cluster != 0),
 #     aes(col = as.character(cluster)), alpha = 0.5
 #   )
-
-
 
