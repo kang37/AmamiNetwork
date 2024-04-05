@@ -81,20 +81,20 @@ list(
       select(date, holiday_name)
   ),
   # Weather ----
-  tar_target(
-    # Block: 名瀬 in Amami island.
-    weather,
-    lapply(1:12, function(x) {
-      jma_collect(item = "daily", block_no = 47909, year = 2018, month = x)
-    }) %>%
-      do.call(rbind, .) %>%
-      unnest(cols = c(
-        pressure, precipitation, temperature, humidity, wind, sunshine,
-        snow, weather_time
-      )) %>%
-      rename_with(~ gsub(")", "", .x)) %>%
-      rename_with(~ gsub("\\(", "_", .x))
-  ),
+  # tar_target(
+  #   # Block: 名瀬 in Amami island.
+  #   weather,
+  #   lapply(1:12, function(x) {
+  #     jma_collect(item = "daily", block_no = 47909, year = 2018, month = x)
+  #   }) %>%
+  #     do.call(rbind, .) %>%
+  #     unnest(cols = c(
+  #       pressure, precipitation, temperature, humidity, wind, sunshine,
+  #       snow, weather_time
+  #     )) %>%
+  #     rename_with(~ gsub(")", "", .x)) %>%
+  #     rename_with(~ gsub("\\(", "_", .x))
+  # ),
   # GIS layer ----
   # Amami boundary
   tar_target(
@@ -207,18 +207,18 @@ list(
       filter(inter) %>%
       pull(dailyid)
   ),
-  tar_target(
-    gis_agoop_kinsakubaru,
-    gis_agoop_inter %>%
-      filter(dailyid %in% gis_agoop_inter_dailyid) %>%
-      mutate(time = hour * 60 + minute) %>%
-      arrange(month, day, dailyid, time) %>%
-      # Add holiday information.
-      mutate(date = as_date(paste(year, month, day, sep = "-"))) %>%
-      left_join(holiday, by = "date") %>%
-      # Add weather column.
-      left_join(weather, by = "date")
-  ),
+  # tar_target(
+  #   gis_agoop_kinsakubaru,
+  #   gis_agoop_inter %>%
+  #     filter(dailyid %in% gis_agoop_inter_dailyid) %>%
+  #     mutate(time = hour * 60 + minute) %>%
+  #     arrange(month, day, dailyid, time) %>%
+  #     # Add holiday information.
+  #     mutate(date = as_date(paste(year, month, day, sep = "-"))) %>%
+  #     left_join(holiday, by = "date") %>%
+  #     # Add weather column.
+  #     left_join(weather, by = "date")
+  # ),
   tar_target(
     gis_agoop_coord_pre,
     gis_agoop %>%
