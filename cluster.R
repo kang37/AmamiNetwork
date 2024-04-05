@@ -106,7 +106,7 @@ ggplot() +
   )
 
 # Further cluster c1.
-gis_agoop_coord_sample_2 <- gis_agoop_coord_sample %>%
+gis_agoop_coord_sample_2 <- gis_agoop_coord_sample_1 %>%
   # Need to check if the wanted cluster is picked.
   filter(cluster == 1)
 # ggplot() +
@@ -140,52 +140,52 @@ gis_agoop_coord_sample <-
   ) %>%
   st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant")
 
+# Change cluster id: from north to south.
+map_cluster_id <-
+  cbind(
+    gis_agoop_coord_sample %>%
+      # Bug: Need to ungroup earlier.
+      ungroup() %>%
+      st_drop_geometry() %>%
+      select(dailyid, cluster),
+    gis_agoop_coord_sample %>%
+      # Bug: Need to ungroup earlier.
+      ungroup() %>%
+      st_coordinates() %>%
+      data.frame() %>%
+      tibble() %>%
+      rename_with(~ c("lon", "lat"))
+  ) %>%
+  group_by(cluster) %>%
+  summarise(mid_lon = (max(lon) + min(lon)) / 2, .groups = "drop") %>%
+  arrange(-mid_lon) %>%
+  mutate(new_cluster = row_number()) %>%
+  select(-mid_lon)
+
+gis_agoop_coord_sample <- gis_agoop_coord_sample %>%
+  left_join(map_cluster_id, by = "cluster") %>%
+  select(-cluster) %>%
+  rename(cluster = new_cluster)
+
 # Plot with ggplot.
 ggplot() +
   geom_sf(data = amami) +
   geom_sf(
-    data = gis_agoop_coord_sample,
-    aes(col = as.character(cluster)), alpha = 0.5
+    data = gis_agoop_coord_sample %>%
+      group_by(cluster) %>%
+      slice_sample(n = 2000),
+    aes(col = as.character(cluster)), alpha = 0.1
   ) +
   geom_sf_label(
     data =
       filter(gis_agoop_coord_sample, cluster != 0) %>%
       group_by(cluster) %>%
       slice_head(n = 1),
-    aes(col = as.character(cluster), label = cluster), alpha = 0.5
-  )
-ggplot() +
-  # geom_sf(data = amami) +
-  geom_sf(
-    data = gis_agoop_coord_sample %>%
-      group_by(cluster) %>%
-      slice_head(n = 50),
-    aes(col = as.character(cluster)),
-    alpha = 0.1
+    aes(col = as.character(cluster), label = cluster), alpha = 0.9, size = 2.5
   ) +
-  geom_sf_label(
-    data =
-      filter(gis_agoop_coord_sample, cluster != 0) %>%
-      group_by(cluster) %>%
-      slice_head(n = 1),
-    aes(col = as.character(cluster), label = cluster), alpha = 0.5
-  )
-ggplot() +
-  geom_sf(data = amami) +
-  geom_sf(
-    data = gis_agoop_coord_sample %>%
-      group_by(cluster) %>%
-      slice_sample(n = 5),
-    aes(col = as.character(cluster)),
-    alpha = 0.1
-  ) +
-  geom_sf_label(
-    data =
-      filter(gis_agoop_coord_sample, cluster != 0) %>%
-      group_by(cluster) %>%
-      slice_sample(n = 1),
-    aes(col = as.character(cluster), label = cluster), alpha = 0.5
-  )
+  labs(x = "Longitude", y = "Latitude") +
+  theme_bw() +
+  theme(legend.position = "none")
 
 # How to apply to the whole data?
 # gis_agoop_coord <- gis_agoop_coord %>%
@@ -210,7 +210,7 @@ gis_agoop_coord_sample <- gis_agoop_coord_sample %>%
       sep = " "
     )
   )) %>%
-  # Bug: Remove one-dailyid-in-two
+  # Bug: Remove one-dailyid-in-two.
   arrange(dailyid, time, accuracy) %>%
   group_by(dailyid, time) %>%
   mutate(time_conflict_id = row_number()) %>%
@@ -257,7 +257,7 @@ seg <- gis_agoop_coord_sample %>%
 
 # Distribution of stay time of each segment for the clusters.
 lapply(
-  0:17,
+  0:length(unique(seg$cluster)),
   function(cluster_id) {
     seg %>%
       filter(cluster == cluster_id) %>%
@@ -270,13 +270,52 @@ lapply(
   }
 ) %>%
   bind_rows() %>%
-  ggplot(aes(as.character(cluster_id), stay_time)) +
+  mutate(cluster_id = factor(
+    cluster_id, levels = as.character(1:length(unique(seg$cluster)))
+  )) %>%
+  ggplot(aes(cluster_id, stay_time)) +
   geom_boxplot() +
-  geom_jitter(alpha = 0.05)
+  geom_jitter(alpha = 0.05) +
+  labs(x = "Cluster", y = "Length of stay")
+# Table.
+lapply(
+  0:length(unique(seg$cluster)),
+  function(cluster_id) {
+    seg %>%
+      filter(cluster == cluster_id) %>%
+      group_by(dailyid, seg_id) %>%
+      summarise(
+        stay_time = max(time, na.rm = TRUE) - min(time, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      mutate(cluster_id = cluster_id)
+  }
+) %>%
+  bind_rows() %>%
+  mutate(
+    cluster_id = factor(
+      cluster_id, levels = as.character(1:length(unique(seg$cluster)))
+    ),
+    stay_time = as.numeric(stay_time) / 60
+  ) %>%
+  group_by(cluster_id) %>%
+  summarise(
+    mean_stay_time = mean(stay_time, na.rm = TRUE),
+    sd_stay_time = sd(stay_time, na.rm = TRUE),
+    n_stay_time = n()
+  ) %>%
+  mutate(
+    se_stay_time = sd_stay_time / sqrt(n_stay_time),
+    lower_ci =
+      mean_stay_time - qt(1 - (0.05 / 2), n_stay_time - 1) * se_stay_time,
+    upper_ci =
+      mean_stay_time + qt(1 - (0.05 / 2), n_stay_time - 1) * se_stay_time
+  ) %>%
+  select(cluster_id, mean_stay_time, lower_ci, upper_ci)
 
 # Bug: Take 15 minutes as a "visit", less than 15 minutes is "pass".
 seg_time <- lapply(
-  0:17,
+  0:length(unique(seg$cluster)),
   function(cluster_id) {
     seg %>%
       filter(cluster == cluster_id) %>%
@@ -328,9 +367,13 @@ seg_time_od %>%
   group_by(origin, destination) %>%
   summarise(n = n(), .groups = "drop") %>%
   ggplot(aes(origin, destination)) +
-  geom_tile(aes(fill = log(n))) +
+  geom_tile(aes(fill = log(n)), col = "black") +
+  theme_bw() +
   scale_fill_gradient2(high = "red", mid = "white", low = "blue") +
-  geom_text(aes(label = n), col = "grey", size = 3)
+  scale_x_continuous(breaks = seq(1, 18, 2)) +
+  scale_y_continuous(breaks = seq(1, 18, 2)) +
+  theme(axis.ticks.x = element_blank()) +
+  geom_text(aes(label = n), col = "black", size = 3)
 seg_time_od %>%
   group_by(origin, destination) %>%
   summarise(n = n(), .groups = "drop") %>%
@@ -342,7 +385,7 @@ seg_time_od %>%
 
 # Function to abstract a trajectory string. For example, a "vc1-vc2-vc1" is simplified as "0-1-0".
 map_traj <- function(x) {
-  x_split <- strsplit(x, "") %>% unlist()
+  x_split <- strsplit(x, "-") %>% unlist()
   x_non_duplicate <- duplicated(x_split)
   x_map <- data.frame(ori = x_split[!x_non_duplicate]) %>%
     mutate(new = row_number() - 1)
@@ -353,6 +396,22 @@ map_traj <- function(x) {
 }
 
 # seg_time is logs of stay time larger than 15 min. Bug: Should remove the noise (cluster = 0)?
+merge_traj <- function(x) {
+  # Split the character vector into individual digits.
+  neighborhood_digits <- strsplit(x, "-")[[1]]
+  # Remove consecutive duplicates.
+  unique_digits <- c(
+    neighborhood_digits[1],
+    neighborhood_digits[-1][
+      neighborhood_digits[-1] !=
+        neighborhood_digits[-length(neighborhood_digits)]
+    ]
+  )
+  # Combine the unique digits back into a single number
+  merged_number <- paste(unique_digits, collapse = "-")
+  return(merged_number)
+}
+
 traj_simp <- seg_time %>%
   arrange(dailyid, seg_id) %>%
   mutate(
@@ -382,29 +441,8 @@ traj_simp <- seg_time %>%
   summarise(traj_1 = paste0(cluster_id, collapse = "-")) %>%
   ungroup() %>%
   # Further abstract trajectory. For example, a "c1-c2-c1" will be "0-1-0".
-  mutate(traj_2 = lapply(traj_1, map_traj) %>% unlist())
-
-# Further merge traj_2.
-merge_traj <- function(x) {
-  neighborhood_number <- gsub("-", "", x)
-  # Convert the number to a character vector
-  neighborhood_chars <- as.character(neighborhood_number)
-  # Split the character vector into individual digits.
-  neighborhood_digits <- strsplit(neighborhood_chars, "")[[1]]
-  # Remove consecutive duplicates.
-  unique_digits <- c(
-    neighborhood_digits[1],
-    neighborhood_digits[-1][
-      neighborhood_digits[-1] !=
-        neighborhood_digits[-length(neighborhood_digits)]
-    ]
-  )
-  # Combine the unique digits back into a single number
-  merged_number <- paste(unique_digits, collapse = "-")
-  return(merged_number)
-}
-
-traj_simp <- traj_simp %>%
+  mutate(traj_2 = lapply(traj_1, map_traj) %>% unlist()) %>%
+  # Further merge traj_2.
   mutate(traj_3 = lapply(traj_2, merge_traj) %>% unlist())
 
 table(traj_simp$traj_1) %>%
@@ -417,15 +455,30 @@ table(traj_simp$traj_2) %>%
   tibble() %>%
   arrange(-Freq)
 
-table(traj_simp$traj_3) %>%
+top_traj_3 <-
+  table(traj_simp$traj_3) %>%
   data.frame() %>%
   tibble() %>%
-  arrange(-Freq)
+  arrange(-Freq) %>%
+  head(15) %>%
+  rename_with(~ c("traj", "freq")) %>%
+  mutate(traj = factor(traj, levels = .$traj))
+ggplot(top_traj_3) +
+  geom_col(aes(traj, log(freq))) +
+  labs(x = "Trajectory mode", y = "log(Frequency)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+
 # Further explore some mode.
-traj_simp %>%
-  filter(traj_3 == "0-1-2") %>%
-  group_by(traj_1) %>%
-  summarise(n = n(), .groups = "drop") %>%
-  arrange(-n)
+for (i in top_traj_3$traj) {
+  print(i)
+  traj_simp %>%
+    filter(traj_3 == i) %>%
+    group_by(traj_1) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    arrange(-n) %>%
+    head(10) %>%
+    print()
+}
 # Most visitors go circle, including 1 or 2 or 3 points circles.
 
