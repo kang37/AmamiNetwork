@@ -384,6 +384,29 @@ traj_simp <- seg_time %>%
   # Further abstract trajectory. For example, a "c1-c2-c1" will be "0-1-0".
   mutate(traj_2 = lapply(traj_1, map_traj) %>% unlist())
 
+# Further merge traj_2.
+merge_traj <- function(x) {
+  neighborhood_number <- gsub("-", "", x)
+  # Convert the number to a character vector
+  neighborhood_chars <- as.character(neighborhood_number)
+  # Split the character vector into individual digits.
+  neighborhood_digits <- strsplit(neighborhood_chars, "")[[1]]
+  # Remove consecutive duplicates.
+  unique_digits <- c(
+    neighborhood_digits[1],
+    neighborhood_digits[-1][
+      neighborhood_digits[-1] !=
+        neighborhood_digits[-length(neighborhood_digits)]
+    ]
+  )
+  # Combine the unique digits back into a single number
+  merged_number <- paste(unique_digits, collapse = "-")
+  return(merged_number)
+}
+
+traj_simp <- traj_simp %>%
+  mutate(traj_3 = lapply(traj_2, merge_traj) %>% unlist())
+
 table(traj_simp$traj_1) %>%
   data.frame() %>%
   tibble() %>%
@@ -393,5 +416,16 @@ table(traj_simp$traj_2) %>%
   data.frame() %>%
   tibble() %>%
   arrange(-Freq)
+
+table(traj_simp$traj_3) %>%
+  data.frame() %>%
+  tibble() %>%
+  arrange(-Freq)
+# Further explore some mode.
+traj_simp %>%
+  filter(traj_3 == "0-1-2") %>%
+  group_by(traj_1) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(-n)
 # Most visitors go circle, including 1 or 2 or 3 points circles.
 
