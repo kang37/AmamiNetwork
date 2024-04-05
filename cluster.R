@@ -1,6 +1,31 @@
 # Package ----
-pacman::p_load(moveVis, move, lubridate, targets, dplyr, dbscan, sf, ggplot2)
+pacman::p_load(
+  moveVis, move, lubridate, targets, dplyr, dbscan, sf, ggplot2, tidyr
+)
 tar_make()
+tar_load(amami)
+tar_load(gis_agoop_coord)
+# Min start hour and max end hour of the dailyid.
+gis_agoop_coord %>%
+  group_by(dailyid) %>%
+  summarise(min_hour = min(hour)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_histogram(aes(min_hour))
+gis_agoop_coord %>%
+  group_by(dailyid) %>%
+  summarise(max_hour = max(hour)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_histogram(aes(max_hour))
+# Conclusion: most dailyid start at 0 and end at 24. Can only keep the dailyid with min start time <= 22 and max end time >= 4.
+
+gis_agoop_coord <- gis_agoop_coord %>%
+  group_by(dailyid) %>%
+  mutate(min_hour = min(hour), max_hour = max(hour)) %>%
+  ungroup() %>%
+  filter(min_hour <= 22, max_hour >= 4) %>%
+  select(-min_hour, -max_hour)
 
 # Trajectory anima ----
 # Bug: Cluster based on visitor data, while trajectory anima based on whole data.
@@ -58,8 +83,6 @@ tar_make()
 
 # Cluster ----
 # Clusters of logs.
-tar_load(gis_agoop_coord)
-
 # Bug: Need to determine minPts and eps first, manually. If k is larger, the calc is slower. The following plot takes 2 min.
 # Bug: Take sample for clustering.
 set.seed(1234)
@@ -84,7 +107,6 @@ table(cluster_res$cluster)
 gis_agoop_coord_sample <- gis_agoop_coord_sample %>%
   st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
   mutate(cluster = cluster_res$cluster)
-tar_load(amami)
 ggplot() +
   geom_sf(data = amami) +
   geom_sf(
@@ -103,219 +125,5 @@ ggplot() +
 #     aes(col = as.character(cluster)), alpha = 0.5
 #   )
 
-# Trajectory between clusters ----
-# About 500 dailyid in the data. What are their average stay time?
-# Bug: How to id stay or pass? Method 1: by personal proportion. For example, if one stay in a place much of a day, then s/he stays there; if the proportion is only 1%, then it is pass. But problem: you only need to spend 10 min visiting a visitor center, isn't that "stay"?
-gis_agoop_coord %>%
-  st_drop_geometry() %>%
-  filter(dailyid == temp_id_num$dailyid[2]) %>%
-  group_by(cluster) %>%
-  summarise(prop = n(), .groups = "drop") %>%
-  reframe(prop = prop / sum(prop))
 
-# Method 2: time distribution of all visitors in a cluster.
-# Bug: Aproximate stay time with the number of logs. Density of log numbers of each dailyid in a cluster.
-lapply(
-  0:10,
-  function(cluster_id) {
-    gis_agoop_coord %>%
-      st_drop_geometry() %>%
-      filter(cluster == cluster_id) %>%
-      group_by(dailyid) %>%
-      summarise(n = n(), .groups = "drop") %>%
-      mutate(cluster_id = cluster_id)
-  }
-) %>%
-  bind_rows() %>%
-  ggplot() +
-  geom_density(aes(n)) +
-  facet_wrap(.~ cluster_id, scales = "free")
-# Seems there is no obvious diff between "pass" and "stay."
-
-# Should further divide segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
-# Should further divid segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
-# Bug: Should make a time column for the raw data before.
-gis_agoop_coord <- gis_agoop_coord %>%
-  mutate(time = as_datetime(
-    paste(
-      paste(year, month, day, sep = "-"),
-      paste(hour, minute, "00", sep = "-"),
-      sep = " "
-    )
-  )) %>%
-  # Bug: Remove one-dailyid-in-two
-  arrange(dailyid, time, accuracy) %>%
-  group_by(dailyid, time) %>%
-  mutate(time_conflict_id = row_number()) %>%
-  filter(time_conflict_id == 1) %>%
-  select(-time_conflict_id)
-
-# Get segment ID for each dailyid.
-seg_id <- gis_agoop_coord %>%
-  st_drop_geometry() %>%
-  arrange(dailyid, time) %>%
-  group_by(dailyid) %>%
-  mutate(
-    new_dailyid = c(dailyid != lag(dailyid)),
-    new_cluster = c(cluster != lag(cluster)),
-    new_dailyid = case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
-    new_cluster = case_when(is.na(new_cluster) ~ TRUE, TRUE ~ new_cluster)
-  ) %>%
-  select(dailyid, time, cluster, new_dailyid, new_cluster) %>%
-  filter(new_dailyid + new_cluster >= 1) %>%
-  mutate(seg_id = row_number())
-
-seg <- gis_agoop_coord %>%
-  st_drop_geometry() %>%
-  arrange(dailyid, hour) %>%
-  left_join(seg_id, by = c("dailyid", "cluster", "time")) %>%
-  ungroup() %>%
-  fill(seg_id)
-
-library(tidyr)
-# Distribution of log numbers of each segment for the clusters.
-lapply(
-  0:10,
-  function(cluster_id) {
-    seg %>%
-      filter(cluster == cluster_id) %>%
-      group_by(dailyid, seg_id) %>%
-      summarise(n = n(), .groups = "drop") %>%
-      mutate(cluster_id = cluster_id)
-  }
-) %>%
-  bind_rows() %>%
-  ggplot() +
-  geom_density(aes(n)) +
-  facet_wrap(.~ cluster_id, scales = "free")
-
-# Distribution of stay time of each segment for the clusters.
-lapply(
-  0:10,
-  function(cluster_id) {
-    seg %>%
-      filter(cluster == cluster_id) %>%
-      group_by(dailyid, seg_id) %>%
-      summarise(stay_time = max(time) - min(time), .groups = "drop") %>%
-      mutate(cluster_id = cluster_id)
-  }
-) %>%
-  bind_rows() %>%
-  ggplot(aes(as.character(cluster_id), stay_time)) +
-  geom_boxplot() +
-  geom_jitter()
-
-# Bug: Take 15 minutes as a "visit", less than 15 minutes is "pass".
-seg_time <- lapply(
-  0:10,
-  function(cluster_id) {
-    seg %>%
-      filter(cluster == cluster_id) %>%
-      group_by(dailyid, seg_id) %>%
-      summarise(stay_time = max(time) - min(time), .groups = "drop") %>%
-      mutate(cluster_id = cluster_id)
-  }
-) %>%
-  bind_rows() %>%
-  # Only keep the "visit".
-  # Bug: How to convert unit? If a dailyid only has 2 logs in a cluster, the stay time might be very low.
-  filter(stay_time > 900)
-# Bug: An assumption - visitors' next destination depends on last destination.
-
-# Most visitors stay in a cluster.
-seg_time %>%
-  group_by(dailyid) %>%
-  summarise(cluster_n = n(), .groups = "drop") %>%
-  ggplot() +
-  geom_histogram(aes(cluster_n))
-
-# In each mode, what is the structure?
-# Bug: Take cluster 1 as an example.
-seg_time %>%
-  left_join(
-    seg_time %>%
-      group_by(dailyid) %>%
-      summarise(cluster_n = n(), .groups = "drop") %>%
-      filter(cluster_n == 1),
-    by = "dailyid"
-  ) %>%
-  filter(!is.na(cluster_n)) %>%
-  pull(seg_id) %>%
-  table()
-
-# Movement matrix.
-# Has the data.frame been arranged in order?
-# Bug: What if a dailyid mostly stay in a cluster, but s/he goes to the edge usually? "c1-edge-c1-edge-c1". Should merge it as "c1-c1-c1" or "c1"?
-seg_time_od <- seg_time %>%
-  group_by(dailyid) %>%
-  mutate(
-    destination = cluster_id, origin = lag(cluster_id)
-  ) %>%
-  # Bug: It is equal to that we remove the dailyid who stays in a cluster for the whole day.
-  filter(!is.na(origin))
-# Most movements are from c2 to c2, followed by c1-c2, c1-c1, c2-c8, c10-c10. c2 is an important center.
-seg_time_od %>%
-  group_by(origin, destination) %>%
-  summarise(n = n(), .groups = "drop") %>%
-  ggplot(aes(origin, destination)) +
-  geom_tile(aes(fill = log(n))) +
-  geom_text(aes(label = n), col = "white")
-
-# Abstract trajectory.
-# First simplification: a "vc1-r-vc1" or "vc1-rc2-vc1" will be simplified as "vc1-vc1", then further simplified as "vc1".
-
-# Function to abstract a trajectory string. For example, a "vc1-vc2-vc1" is simplified as "0-1-0".
-map_traj <- function(x) {
-  x_split <- strsplit(x, "") %>% unlist()
-  x_non_duplicate <- duplicated(x_split)
-  x_map <- data.frame(ori = x_split[!x_non_duplicate]) %>%
-    mutate(new = row_number() - 1)
-  x_replace <- data.frame(ori = x_split) %>%
-    left_join(x_map, by = "ori")
-  res <- paste0(x_replace$new, collapse = "")
-  return(res)
-}
-
-# seg_time is logs of stay time larger than 15 min. Bug: Should remove the noise (cluster = 0)?
-traj_simp <- seg_time %>%
-  arrange(dailyid, seg_id) %>%
-  mutate(
-    # If it is a new dailyid, or if it enters a new cluster.
-    new_dailyid = c(dailyid != lag(dailyid)),
-    new_cluster_id = c(cluster_id != lag(cluster_id)),
-    new_dailyid =
-      case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
-    new_cluster_id =
-      case_when(is.na(new_cluster_id) ~ TRUE, TRUE ~ new_cluster_id),
-    # If the answer is yes to either question, then the state is changed.
-    state_chg = c(new_dailyid | new_cluster_id)
-  ) %>%
-  # Every time the state changes, assign a new visit ID. So for the non-changed rows, assgin NA then fill them with the changed visit ID.
-  group_by(dailyid, state_chg) %>%
-  mutate(visit_id = row_number()) %>%
-  ungroup() %>%
-  mutate(visit_id = case_when(
-    state_chg ~ visit_id, !state_chg ~ NA
-  )) %>%
-  fill(visit_id) %>%
-  # Make trajectory string.
-  select(dailyid, visit_id, cluster_id) %>%
-  distinct() %>%
-  mutate(cluster_id = as.character(cluster_id)) %>%
-  group_by(dailyid) %>%
-  summarise(traj_1 = paste0(cluster_id, collapse = "")) %>%
-  ungroup() %>%
-  # Further abstract trajectory. For example, a "c1-c2-c1" will be "0-1-0".
-  mutate(traj_2 = lapply(traj_1, map_traj) %>% unlist())
-
-table(traj_simp$traj_1) %>%
-  data.frame() %>%
-  tibble() %>%
-  arrange(-Freq)
-
-table(traj_simp$traj_2) %>%
-  data.frame() %>%
-  tibble() %>%
-  arrange(-Freq)
-# Most visitors go circle, including 1 or 2 or 3 points circles.
 

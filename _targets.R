@@ -238,7 +238,7 @@ list(
     ) %>%
       tibble() %>%
       # Bug: Eliminate logs out of the island. Should have done that for the raw data.
-      filter(lat > 27.06, lat < 28.66, lon > 128, lon < 131)
+      filter(lat > 28.10, lat < 28.55, lon > 129.13, lon < 129.73)
   )
 )
 
