@@ -32,11 +32,19 @@ list(
       select(prefcode, prefname, citycode, cityname) %>%
       distinct()
   ),
-  # Agoop ----
-  # Agoop folder.
+  # City code in Amami.
   tar_target(
-    agoop_folder, "data_raw/23_Agoop_amami_data", format = "file"
+    city_code_in_amami,
+    data.frame(
+      city_in_amami = c(
+        "奄美市", "大和村", "宇検村", "瀬戸内町", "龍郷町", "喜界町",
+        "徳之島町", "天城町", "伊仙町", "和泊町", "知名町", "与論町"
+      )
+    ) %>%
+      left_join(pref_city_code, by = c("city_in_amami" = "cityname")) %>%
+      pull(citycode)
   ),
+  # Agoop ----
   # Get all file names.
   tar_target(
     agoop_file,
@@ -210,6 +218,27 @@ list(
       left_join(holiday, by = "date") %>%
       # Add weather column.
       left_join(weather, by = "date")
+  ),
+  tar_target(
+    gis_agoop_coord_pre,
+    gis_agoop %>%
+      # Bug: Need to eliminate local residents for the raw data?
+      filter(!home_citycode %in% city_code_in_amami) %>%
+      st_transform(4326)
+  ),
+  tar_target(
+    gis_agoop_coord,
+    cbind(
+      st_drop_geometry(gis_agoop_coord_pre),
+      st_coordinates(gis_agoop_coord_pre) %>%
+        matrix(ncol = 2) %>%
+        data.frame() %>%
+        tibble() %>%
+        rename_with(~ c("lon", "lat"))
+    ) %>%
+      tibble() %>%
+      # Bug: Eliminate logs out of the island. Should have done that for the raw data.
+      filter(lat > 27.06, lat < 28.66, lon > 128, lon < 131)
   )
 )
 
