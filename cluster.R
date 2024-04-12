@@ -172,8 +172,9 @@ ggplot() +
       filter(gis_agoop_coord_sample, cluster != 0) %>%
       group_by(cluster) %>%
       slice_head(n = 1),
-    aes(col = cluster, label = cluster), alpha = 0.9, size = 2.5
+    aes(col = cluster, label = cluster), alpha = 0.7, size = 2.5
   ) +
+  scale_color_manual(values = rep(brewer.pal(9, "Dark2"), 3)) +
   labs(x = "Longitude", y = "Latitude") +
   theme_bw() +
   theme(legend.position = "none")
