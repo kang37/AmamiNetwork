@@ -27,7 +27,7 @@ gis_agoop_coord <- gis_agoop_coord %>%
   filter(min_hour <= 22, max_hour >= 4) %>%
   select(-min_hour, -max_hour)
 
-# Trajectory anima ----
+# Trajectory animation ----
 # Bug: Cluster based on visitor data, while trajectory anima based on whole data.
 # Function to get trajectory_animation.gif by dailyid.
 # get_anim <- function(dailyid_id) {
