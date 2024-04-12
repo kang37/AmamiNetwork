@@ -96,6 +96,7 @@ cluster_res
 table(cluster_res$cluster)
 gis_agoop_coord_sample_1 <- gis_agoop_coord_sample_1 %>%
   mutate(cluster = cluster_res$cluster) %>%
+  # Remove the noise points (e.g. points on the way between 2 clusters).
   filter(cluster != 0)
 ggplot() +
   geom_sf(data = amami) +
@@ -123,6 +124,7 @@ cluster_res_c1 <-
 cluster_res_c1
 gis_agoop_coord_sample_2 <- gis_agoop_coord_sample_2 %>%
   mutate(cluster = cluster_res_c1$cluster) %>%
+  # Remove the noise points (e.g. points on the way between 2 clusters).
   filter(cluster != 0)
 ggplot() +
   geom_sf(data = amami) +
@@ -140,32 +142,21 @@ gis_agoop_coord_sample <-
   ) %>%
   st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant")
 
-# Change cluster id: from north to south.
+# Change cluster id: from north to south, and from east to west.
 map_cluster_id <-
-  cbind(
-    gis_agoop_coord_sample %>%
-      # Bug: Need to ungroup earlier.
-      ungroup() %>%
-      st_drop_geometry() %>%
-      select(dailyid, cluster),
-    gis_agoop_coord_sample %>%
-      # Bug: Need to ungroup earlier.
-      ungroup() %>%
-      st_coordinates() %>%
-      data.frame() %>%
-      tibble() %>%
-      rename_with(~ c("lon", "lat"))
+  c(
+    18, 8, 4, 5, 15, 3, 1, 10, 9, 6, 2, 7, 14, 13, 16, 17, 12, 11,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
   ) %>%
-  group_by(cluster) %>%
-  summarise(mid_lon = (max(lon) + min(lon)) / 2, .groups = "drop") %>%
-  arrange(-mid_lon) %>%
-  mutate(new_cluster = row_number()) %>%
-  select(-mid_lon)
+  matrix(ncol = 2) %>%
+  data.frame() %>%
+  rename_with(~ c("cluster", "new_cluster"))
 
 gis_agoop_coord_sample <- gis_agoop_coord_sample %>%
   left_join(map_cluster_id, by = "cluster") %>%
   select(-cluster) %>%
-  rename(cluster = new_cluster)
+  rename(cluster = new_cluster) %>%
+  mutate(cluster = as.character(cluster))
 
 # Plot with ggplot.
 ggplot() +
@@ -173,30 +164,19 @@ ggplot() +
   geom_sf(
     data = gis_agoop_coord_sample %>%
       group_by(cluster) %>%
-      slice_sample(n = 2000),
-    aes(col = as.character(cluster)), alpha = 0.1
+      slice_sample(n = 3000),
+    aes(col = cluster), alpha = 0.1
   ) +
   geom_sf_label(
     data =
       filter(gis_agoop_coord_sample, cluster != 0) %>%
       group_by(cluster) %>%
       slice_head(n = 1),
-    aes(col = as.character(cluster), label = cluster), alpha = 0.9, size = 2.5
+    aes(col = cluster, label = cluster), alpha = 0.9, size = 2.5
   ) +
   labs(x = "Longitude", y = "Latitude") +
   theme_bw() +
   theme(legend.position = "none")
-
-# How to apply to the whole data?
-# gis_agoop_coord <- gis_agoop_coord %>%
-#   st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-#   mutate(cluster = cluster_res$cluster)
-# ggplot() +
-#   geom_sf(data = amami) +
-#   geom_sf(
-#     data = filter(gis_agoop_coord, cluster != 0),
-#     aes(col = as.character(cluster)), alpha = 0.5
-#   )
 
 # Trajectory between clusters ----
 # Should further divide segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
@@ -238,22 +218,6 @@ seg <- gis_agoop_coord_sample %>%
   left_join(seg_id, by = c("dailyid", "cluster", "time")) %>%
   ungroup() %>%
   tidyr::fill(seg_id)
-
-# Distribution of log numbers of each segment for the clusters.
-# lapply(
-#   0:10,
-#   function(cluster_id) {
-#     seg %>%
-#       filter(cluster == cluster_id) %>%
-#       group_by(dailyid, seg_id) %>%
-#       summarise(n = n(), .groups = "drop") %>%
-#       mutate(cluster_id = cluster_id)
-#   }
-# ) %>%
-#   bind_rows() %>%
-#   ggplot() +
-#   geom_density(aes(n)) +
-#   facet_wrap(.~ cluster_id, scales = "free")
 
 # Distribution of stay time of each segment for the clusters.
 lapply(
