@@ -1,0 +1,98 @@
+---
+title: "奄美大岛游客轨迹分析"
+author: "Jiefeng Kang"
+format: html
+editor: visual
+---
+
+## 引言
+
+由于各种因素（如不同的游客、交通方式、旅行目的和停留时间的长短），基于自然的旅游行为非常复杂。移动数据为揭示游客的时空模式提供了新的机会。基于高时空分辨率的移动数据Agoop数据集，本研究通过空间聚类和空间序列分析，分析了游客的轨迹模式，并以奄美大岛为案例研究对象。
+
+奄美大岛游客众多，尤其是夏季。岛上的基础设施在旺季面临挑战。对游客进行轨迹分析，可以探明游客的目的地轨迹、滞留时间、通勤强度、网络等等情况，基于此数据，可以对奄美大岛的旅游设施规划和管理提出建议，而且该方法同样可以应用于其他旅游城市。
+
+本研究的主要分析流程是：基于大数据，对奄美大岛游客轨迹进行空间聚类，如此一来，按时空关系可将访客目的地分成几个cluster；对每个访客行经的cluster进行轨迹分析，可以获得访客目的地数量、顺序、滞留时间等结果；对cluster进行网络分析，可以获得研究区域交通流通网络的拓扑结构（尚未进行该分析）。
+
+## 空间聚类
+
+使用density-based spatial clustering of applications with noise（DBSCAN）方法，基于2018年的游客轨迹点识别出16个聚类（cluster）。一般而言，轨迹点密度高的地方会被识别为一个聚类，表明游客流量大或/和停留时间长；而轨迹点密度低的地方可能会被识别为“噪音”。这些聚类被分为4个超级聚类：1-9号聚类位于北部，有两个中心（机场和市区）并有一条高速公路连接；10号聚类位于中东部，11号聚类位于中西部，12-14号聚类位于南部。
+
+```{r}
+ggplot() +
+  geom_sf(data = amami) +
+  geom_sf(
+    data = gis_agoop_coord_sample %>%
+      filter(cluster != 0) %>%
+      group_by(cluster) %>%
+      slice_sample(n = 3000),
+    aes(col = cluster), alpha = 0.1
+  ) +
+  geom_sf_label(
+    data =
+      filter(gis_agoop_coord_sample, cluster != 0) %>%
+      group_by(cluster) %>%
+      slice_head(n = 1),
+    aes(col = cluster, label = cluster), alpha = 0.7, size = 2.5
+  ) +
+  scale_color_manual(values = rep(brewer.pal(9, "Dark2"), 3)) +
+  labs(x = "Longitude", y = "Latitude") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+## 停留时间
+
+访客在各个聚类的停留时间如下。根据中位数或平均值来看，北部聚类的停留时间较长，其次是南部的某些聚类，然后是其他聚类。
+
+```{r}
+# Plot duration of stay of each cluster, based on segment duration stay data.
+ggplot(data = seg, aes(cluster, duration_stay)) +
+  geom_boxplot() +
+  geom_jitter(alpha = 0.01) +
+  labs(x = "Cluster", y = "Duration of stay")
+# Table.
+seg %>%
+  group_by(cluster) %>%
+  summarise(
+    mean_dur_stay = mean(duration_stay, na.rm = TRUE),
+    mid_dur_stay = median(duration_stay, na.rm = TRUE),
+    sd_dur_stay = sd(duration_stay, na.rm = TRUE),
+    n_dur_stay = n()
+  ) %>%
+  mutate(
+    se_dur_stay = sd_dur_stay / sqrt(n_dur_stay),
+    lower_ci =
+      mean_dur_stay - qt(1 - (0.05 / 2), n_dur_stay - 1) * se_dur_stay,
+    upper_ci =
+      mean_dur_stay + qt(1 - (0.05 / 2), n_dur_stay - 1) * se_dur_stay
+  ) %>%
+  select(cluster, mid_dur_stay, mean_dur_stay, lower_ci, upper_ci, sd_dur_stay)
+```
+
+## 聚类间移动
+
+每个游客途经的聚类数呢？下图表示访客们图景聚类数的数量，例如，第一条柱子表示在一天中途经1个聚类的访客数量。可见大部分访客在一天中都待在一个聚类中。
+
+```{r}
+seg %>%
+  group_by(dailyid) %>%
+  summarise(seg_n = n(), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(seg_n), binwidth = 1)
+```
+
+那么访客主要是从哪些聚类移动向哪些聚类呢？我提取了每条轨迹的每一对出发地-目的地配对并可视化，下图展示了访客在聚类间的移动（单向）。4号和5号聚类之间的成对移动较高（从4号到5号的移动有849次，从5号到4号的移动有993次）。这些聚类成为成对移动的中心的原因是，4号包含了机场和从机场到城市中心的主要干道，5号则包含了城市中心，这两个地点几乎是来奄美大岛的人所必经的地方。再南方聚类中，13号聚类有较高的成对移动，尤其是从13号到5号，或者4或5号到13号的流动。
+
+为了分析轨迹模式，我们进一步简化了每个游客的起点轨迹。每个游客途径的聚类按照其途径顺序进行编号。例如，轨迹“C2-C3-C4-C2”（“C”表示“聚类”）简化为“0-1-2-0”。前五名的轨迹模式为：0（停留在一个聚类中）、0-1、0-1-0（从一个聚类出发，去另一个聚类，再回到第一个聚类）、0-1-2和0-1-2-0。我们进一步研究了每种模式的详细轨迹。结果表明，城市中心和交通基础设施对岛屿国家公园的游客具有重要性。
+
+```{r}
+ggplot(top_traj_3) +
+  geom_col(aes(traj, log(freq))) +
+  labs(x = "Trajectory mode", y = "log(Frequency)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+## 网络分析
+
+待办。
