@@ -1,6 +1,7 @@
 # Package ----
 pacman::p_load(
-  moveVis, move, lubridate, targets, dplyr, dbscan, sf, ggplot2, tidyr
+  moveVis, move, lubridate, dplyr, dbscan, sf,
+  ggplot2, tidyr, RColorBrewer, targets
 )
 tar_make()
 tar_load(amami)
@@ -175,7 +176,8 @@ ggplot() +
       slice_head(n = 1),
     aes(col = as.character(cluster), label = cluster),
     alpha = 0.7, size = 2.5
-  )
+  ) +
+  theme_bw()
 
 # Change cluster id: from north to south, and from east to west.
 map_cluster_id <-
@@ -243,8 +245,7 @@ seg <- gis_agoop_coord_sample %>%
   tidyr::fill(seg_id) %>%
   # Calculate duration of stay.
   group_by(dailyid, cluster, seg_id) %>%
-  summarise(duration_stay = max(time) - min(time)) %>%
-  ungroup() %>%
+  summarise(duration_stay = max(time) - min(time), .groups = "drop") %>%
   # Remove noise points.
   filter(cluster != 0) %>%
   # Bug: Duration of stat = 0 also excluded, might introduce bias from signal lose, i.e., only one points is recorded in a cluster.
@@ -262,6 +263,7 @@ seg %>%
   group_by(cluster) %>%
   summarise(
     mean_dur_stay = mean(duration_stay, na.rm = TRUE),
+    mid_dur_stay = median(duration_stay, na.rm = TRUE),
     sd_dur_stay = sd(duration_stay, na.rm = TRUE),
     n_dur_stay = n()
   ) %>%
@@ -272,8 +274,7 @@ seg %>%
     upper_ci =
       mean_dur_stay + qt(1 - (0.05 / 2), n_dur_stay - 1) * se_dur_stay
   ) %>%
-  select(cluster, mean_dur_stay, lower_ci, upper_ci) %>%
-  arrange(-mean_dur_stay)
+  select(cluster, mid_dur_stay, mean_dur_stay, lower_ci, upper_ci, sd_dur_stay)
 
 # Most visitors stay in a cluster; segment visited is similar to cluster visited number.
 seg %>%
@@ -288,8 +289,6 @@ seg %>%
   summarise(cluster_n = n(), .groups = "drop") %>%
   ggplot() +
   geom_histogram(aes(cluster_n), binwidth = 1)
-
-
 
 # In each mode, what is the structure?
 # Bug: Take cluster 1 as an example.
