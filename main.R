@@ -454,12 +454,17 @@ vis_attr <-
     dailyid, month, dayofweek, home_prefcode, home_citycode, gender
   ) %>%
   distinct() %>%
-  mutate(season = case_when(
-    month >= 3 & month <= 5 ~ "spring",
-    month >= 6 & month <= 8 ~ "summer",
-    month >= 9 & month <= 11 ~ "autum",
-    month <= 2 | month == 12 ~ "winter"
-  ))
+  mutate(
+    season = case_when(
+      month >= 3 & month <= 5 ~ "spring",
+      month >= 6 & month <= 8 ~ "summer",
+      month >= 9 & month <= 11 ~ "autum",
+      month <= 2 | month == 12 ~ "winter"
+    ),
+    home_pref_grp = case_when(
+      home_prefcode == "46" ~ "local", home_prefcode != "46" ~ "visitor"
+    )
+  )
 
 traj_simp_attr <- traj_simp %>%
   left_join(vis_attr, by = "dailyid")
