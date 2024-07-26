@@ -444,7 +444,7 @@ for (i in top_traj_3$traj) {
 traj_simp %>%
   group_by(month)
 
-# Visitor attr ----
+# OD pair diff ----
 vis_attr <-
   gis_agoop_coord %>%
   # Bug: Should ungroup earlier.
@@ -456,16 +456,82 @@ vis_attr <-
   distinct() %>%
   mutate(
     season = case_when(
-      month >= 3 & month <= 5 ~ "spring",
-      month >= 6 & month <= 8 ~ "summer",
-      month >= 9 & month <= 11 ~ "autum",
-      month <= 2 | month == 12 ~ "winter"
+      month >= 10 ~ "q4",
+      month >= 7 ~ "q3",
+      month >= 4  ~ "q2",
+      month >= 1 ~ "q1"
     ),
     home_pref_grp = case_when(
       home_prefcode == "46" ~ "local", home_prefcode != "46" ~ "visitor"
     )
   )
 
+seg_pair_od_local_prop <-
+  seg_pair_od %>%
+  left_join(vis_attr) %>%
+  filter(!is.na(home_pref_grp)) %>%
+  group_by(home_pref_grp, origin, destination) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  # 计算每对出行占所有出行配对的百分比。
+  group_by(home_pref_grp) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+# 可视化。
+seg_pair_od_local_prop %>%
+  ggplot(aes(origin, destination)) +
+  geom_tile(aes(fill = prop), col = "black") +
+  theme_bw() +
+  scale_fill_gradient2(high = "red", mid = "white", low = "blue") +
+  theme(axis.ticks.x = element_blank()) +
+  geom_text(aes(label = round(prop, 2)*100), col = "black", size = 3) +
+  facet_wrap(.~ home_pref_grp, scales = "free")
+
+# 计算基尼指数和SD。
+seg_pair_od_local_prop %>%
+  group_by(home_pref_grp) %>%
+  summarise(
+    prop_gini = Gini(prop), prop_sd = sd(prop), .groups = "drop"
+  )
+
+# Pairs of OD by local/visitor and season.
+seg_pair_od_local_quarter_prop <-
+  seg_pair_od %>%
+  # filter(!c(destination == "4" & origin == "5")) %>%
+  # filter(!c(destination == "5" & origin == "4")) %>%
+  left_join(vis_attr) %>%
+  filter(!is.na(home_pref_grp)) %>%
+  group_by(home_pref_grp, season, origin, destination) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  # 计算每对出行占所有出行配对的百分比。
+  group_by(home_pref_grp, season) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# 可视化。
+seg_pair_od_prop %>%
+  ggplot(aes(origin, destination)) +
+  geom_tile(aes(fill = prop), col = "black") +
+  theme_bw() +
+  scale_fill_gradient2(high = "red", mid = "white", low = "blue") +
+  theme(axis.ticks.x = element_blank()) +
+  geom_text(aes(label = round(prop, 2)*100), col = "black", size = 3) +
+  facet_grid(season ~ home_pref_grp)
+
+# 计算基尼指数。
+library(DescTools)
+seg_pair_od_prop %>%
+  group_by(home_pref_grp, season) %>%
+  summarise(prop_gini = Gini(prop), .groups = "drop") %>%
+  ggplot() +
+  geom_line(aes(season, prop_gini, col = home_pref_grp, group = home_pref_grp))
+# 计算标准差。
+seg_pair_od_prop %>%
+  group_by(home_pref_grp, season) %>%
+  summarise(prop_sd = sd(prop), .groups = "drop") %>%
+  ggplot() +
+  geom_line(aes(season, prop_sd, col = home_pref_grp, group = home_pref_grp))
+
+# Trajectory by visitor attr ----
 traj_simp_attr <- traj_simp %>%
   left_join(vis_attr, by = "dailyid")
 
