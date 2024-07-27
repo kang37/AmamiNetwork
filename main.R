@@ -542,20 +542,44 @@ seg_pair_od_prop %>%
   geom_line(aes(season, prop_sd, col = home_pref_grp, group = home_pref_grp))
 
 # OD network ----
-# Export csv file for Gephi.
-seg_pair_od %>%
-  ungroup() %>%
-  select(Source = origin, Target = destination) %>%
-  write.csv("od_edge.csv", row.names = FALSE)
-st_coordinates(gis_agoop_coord_sample) %>%
+od_node <- st_coordinates(gis_agoop_coord_sample) %>%
   data.frame() %>%
   rename_with(~ c("longitude", "latitude")) %>%
   mutate(cluster = gis_agoop_coord_sample$cluster) %>%
   group_by(cluster) %>%
-  summarise(longitude = median(longitude), latitude = median(latitude)) %>%
-  rename(Id = cluster, Latitude = latitude, Longitude = longitude) %>%
-  write.csv("od_node.csv", row.names = FALSE)
-# Manually make network plots in Gephi.
+  summarise(lon = median(longitude), lat = median(latitude))
+od_edge <-
+  seg_pair_od %>%
+  ungroup() %>%
+  select(origin, destination) %>%
+  group_by(origin, destination) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  left_join(
+    od_node %>% rename(origin = cluster, ori_lon = lon, ori_lat = lat),
+    by = "origin"
+  ) %>%
+  left_join(
+    od_node %>% rename(destination = cluster, dest_lon = lon, dest_lat = lat),
+    by = "destination"
+  ) %>%
+  mutate(n = n / max(n))
+
+ggplot() +
+  geom_sf(data = amami) +
+  geom_curve(
+    data = od_edge %>%
+      filter(!c(origin == 4 & destination == 5)) %>%
+      filter(!c(origin == 5 & destination == 4)),
+    aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, size = n,
+        alpha = n,
+        col = n)
+  ) +
+  scale_color_gradient(low = "blue", high = "red") +
+  scale_size(range = c(0.1, 1)) +
+  # scale_linewidth(range = c(0.1, 1)) +
+  geom_point(
+    data = od_node, aes(x = lon, y = lat), col = "white", size = 1
+  )
 
 # Trajectory by visitor attr ----
 traj_simp_attr <- traj_simp %>%
