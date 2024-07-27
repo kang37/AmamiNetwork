@@ -217,6 +217,13 @@ ggplot() +
   theme_bw() +
   theme(legend.position = "none")
 
+# General description ----
+gis_agoop_coord_sample %>%
+  left_join(vis_attr) %>%
+  st_drop_geometry() %>%
+  group_by(season) %>%
+  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop")
+
 # Trajectory between clusters ----
 # Further divide segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
 # Should further divid segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
@@ -353,7 +360,8 @@ map_traj <- function(x) {
   return(res)
 }
 
-# seg_time is logs of stay time larger than 15 min. Bug: Should remove the noise (cluster = 0)?
+# seg_time is logs of stay time larger than 15 min.
+# Bug: Should remove the noise (cluster = 0)?
 merge_traj <- function(x) {
   # Split the character vector into individual digits.
   neighborhood_digits <- strsplit(x, "-")[[1]]
@@ -440,10 +448,6 @@ for (i in top_traj_3$traj) {
 }
 # Most visitors go circle, including 1 or 2 or 3 points circles.
 
-# Seasonal change of trajectories.
-traj_simp %>%
-  group_by(month)
-
 # OD pair diff ----
 vis_attr <-
   gis_agoop_coord %>%
@@ -464,7 +468,13 @@ vis_attr <-
     home_pref_grp = case_when(
       home_prefcode == "46" ~ "local", home_prefcode != "46" ~ "visitor"
     )
+    # Bug: Why no Amamia residents in the Amami data??
+    # home_pref_grp = case_when(
+    #   home_citycode %in% c(46222, "46523", "46524", "46525", "46527") ~ "local",
+    #   TRUE ~ "visitor"
+    # )
   )
+
 
 seg_pair_od_local_prop <-
   seg_pair_od %>%
@@ -508,7 +518,7 @@ seg_pair_od_local_quarter_prop <-
   ungroup()
 
 # 可视化。
-seg_pair_od_prop %>%
+seg_pair_od_local_quarter_prop %>%
   ggplot(aes(origin, destination)) +
   geom_tile(aes(fill = prop), col = "black") +
   theme_bw() +
