@@ -553,47 +553,53 @@ od_edge <-
   seg_pair_od %>%
   ungroup() %>%
   left_join(vis_attr) %>%
-  select(season, home_pref_grp, origin, destination) %>%
-  group_by(season, home_pref_grp, origin, destination) %>%
+  select(season, gender, home_pref_grp, origin, destination) %>%
+  group_by(season, gender, home_pref_grp, origin, destination) %>%
   summarise(n = n(), .groups = "drop")
 
-ggplot() +
-  # geom_sf(data = amami) +
-  geom_curve(
-    data = od_edge %>%
-      filter(
-        !c(origin == 4 & destination == 5),
-        !c(origin == 5 & destination == 4),
-        !is.na(home_pref_grp)
-      ) %>%
-      group_by(home_pref_grp, season, origin, destination) %>%
-      summarise(n = sum(n), .groups = "drop") %>%
-      group_by(home_pref_grp, season) %>%
-      mutate(n = n / max(n)) %>%
-      left_join(
-        od_node %>% rename(origin = cluster, ori_lon = lon, ori_lat = lat),
-        by = "origin"
-      ) %>%
-      left_join(
-        od_node %>% rename(destination = cluster, dest_lon = lon, dest_lat = lat),
-        by = "destination"
-      ) ,
-    aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, size = n,
-        alpha = n,
-        col = n)
-  ) +
-  scale_color_gradient(low = "blue", high = "red") +
-  scale_size(range = c(0.1, 1)) +
-  geom_point(
-    data = od_node, aes(x = lon, y = lat), col = "grey", size = 3.5
-  ) +
-  geom_text(
-    data = od_node, aes(x = lon, y = lat, label = cluster), size = 3
-  ) +
-  labs(x = "Lon", y = "Lat") +
-  theme_bw() +
-  theme(legend.position = "none") +
-  facet_grid(home_pref_grp ~ season)
+# Function to get seasonal OD network by a variable.
+get_season_od_net <- function(var_x) {
+  ggplot() +
+    # geom_sf(data = amami) +
+    geom_curve(
+      data = od_edge %>%
+        filter(
+          !c(origin == 4 & destination == 5),
+          !c(origin == 5 & destination == 4),
+          !is.na({{var_x}}),
+          {{var_x}} != ""
+        ) %>%
+        group_by({{var_x}}, season, origin, destination) %>%
+        summarise(n = sum(n), .groups = "drop") %>%
+        group_by({{var_x}}, season) %>%
+        mutate(n = n / max(n)) %>%
+        left_join(
+          od_node %>% rename(origin = cluster, ori_lon = lon, ori_lat = lat),
+          by = "origin"
+        ) %>%
+        left_join(
+          od_node %>% rename(destination = cluster, dest_lon = lon, dest_lat = lat),
+          by = "destination"
+        ) ,
+      aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, size = n,
+          alpha = n,
+          col = n)
+    ) +
+    scale_color_gradient(low = "blue", high = "red") +
+    scale_size(range = c(0.1, 1)) +
+    geom_point(
+      data = od_node, aes(x = lon, y = lat), col = "grey", size = 3.5
+    ) +
+    geom_text(
+      data = od_node, aes(x = lon, y = lat, label = cluster), size = 3
+    ) +
+    labs(x = "Lon", y = "Lat") +
+    theme_bw() +
+    theme(legend.position = "none") +
+    facet_grid(gender ~ season)
+}
+get_season_od_net(home_pref_grp)
+get_season_od_net(gender)
 
 # Trajectory by visitor attr ----
 traj_simp_attr <- traj_simp %>%
