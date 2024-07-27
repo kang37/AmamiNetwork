@@ -224,6 +224,16 @@ gis_agoop_coord_sample %>%
   group_by(season) %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop")
 
+# Change of dailyid number by source and month.
+vis_attr %>%
+  filter(!is.na(home_pref_grp)) %>%
+  group_by(home_pref_grp, month) %>%
+  summarise(n = n()) %>%
+  mutate(month = factor(month, levels = 1:12)) %>%
+  ggplot() +
+  geom_col(aes(month, n)) +
+  facet_wrap(.~ home_pref_grp, ncol = 1, scales = "free")
+
 # Trajectory between clusters ----
 # Further divide segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
 # Should further divid segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
@@ -645,11 +655,13 @@ ggplot() +
 traj_simp_attr <- traj_simp %>%
   left_join(vis_attr, by = "dailyid")
 
+## Motif ----
 traj_simp_attr %>%
   group_by(traj_3, season) %>%
-  summarise(n = n()) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(n > 1) %>%
   ggplot() +
-  geom_col(aes(traj_3, log(n), fill = as.character(season))) +
+  geom_col(aes(traj_3, n, fill = as.character(season))) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90))
 
@@ -669,18 +681,5 @@ traj_simp_attr %>%
   geom_point(aes(gender, n)) +
   facet_wrap(.~ traj_3, scales = "free")
 
-vis_attr %>%
-  group_by(month) %>%
-  summarise(n = n()) %>%
-  ggplot() +
-  geom_col(aes(as.character(month), n))
+## Number of destination ----
 
-ggplot() +
-  geom_sf(data = amami) +
-  geom_sf_label(
-    data =
-      filter(gis_agoop_coord_sample, cluster != 0) %>%
-      group_by(cluster) %>%
-      slice_head(n = 5),
-    aes(col = as.character(cluster), label = cluster), alpha = 0.5
-  )
