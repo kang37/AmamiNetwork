@@ -682,4 +682,36 @@ traj_simp_attr %>%
   facet_wrap(.~ traj_3, scales = "free")
 
 ## Number of destination ----
+# 本地人和游客四季旅途中经过的地点个数有何不同？
+seg %>%
+  left_join(vis_attr, by = "dailyid") %>%
+  filter(!is.na(home_pref_grp)) %>%
+  # 每个dailyid经过多少个地点。
+  group_by(dailyid, home_pref_grp, season) %>%
+  summarise(seg_n = n(), .groups = "drop") %>%
+  # 不同客源地的四季每日途径地点数。
+  group_by(home_pref_grp, season, seg_n) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(home_pref_grp, season) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_col(aes(season, prop, fill = as.character(seg_n))) +
+  facet_wrap(.~ home_pref_grp, scales = "free_y")
 
+# 如果加入性别维度？
+seg %>%
+  left_join(vis_attr, by = "dailyid") %>%
+  filter(!is.na(home_pref_grp), gender != "") %>%
+  # 每个dailyid经过多少个地点。
+  group_by(dailyid, home_pref_grp, gender, season) %>%
+  summarise(seg_n = n(), .groups = "drop") %>%
+  # 不同客源地的四季每日途径地点数。
+  group_by(home_pref_grp, gender, season, seg_n) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(home_pref_grp, gender, season) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  ggplot() +
+  geom_col(aes(season, prop, fill = as.character(seg_n))) +
+  facet_grid(gender ~ home_pref_grp, scales = "free_y")
