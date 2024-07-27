@@ -542,6 +542,7 @@ seg_pair_od_prop %>%
   geom_line(aes(season, prop_sd, col = home_pref_grp, group = home_pref_grp))
 
 # OD network ----
+# By source prefecture.
 od_node <- st_coordinates(gis_agoop_coord_sample) %>%
   data.frame() %>%
   rename_with(~ c("longitude", "latitude")) %>%
@@ -551,35 +552,39 @@ od_node <- st_coordinates(gis_agoop_coord_sample) %>%
 od_edge <-
   seg_pair_od %>%
   ungroup() %>%
-  select(origin, destination) %>%
-  group_by(origin, destination) %>%
-  summarise(n = n(), .groups = "drop") %>%
-  left_join(
-    od_node %>% rename(origin = cluster, ori_lon = lon, ori_lat = lat),
-    by = "origin"
-  ) %>%
-  left_join(
-    od_node %>% rename(destination = cluster, dest_lon = lon, dest_lat = lat),
-    by = "destination"
-  ) %>%
-  mutate(n = n / max(n))
+  left_join(vis_attr) %>%
+  select(season, home_pref_grp, origin, destination) %>%
+  group_by(season, home_pref_grp, origin, destination) %>%
+  summarise(n = n(), .groups = "drop")
 
 ggplot() +
   geom_sf(data = amami) +
   geom_curve(
     data = od_edge %>%
       filter(!c(origin == 4 & destination == 5)) %>%
-      filter(!c(origin == 5 & destination == 4)),
+      filter(!c(origin == 5 & destination == 4)) %>%
+      group_by(home_pref_grp, origin, destination) %>%
+      summarise(n = sum(n), .groups = "drop") %>%
+      group_by(home_pref_grp) %>%
+      mutate(n = n / max(n)) %>%
+      left_join(
+        od_node %>% rename(origin = cluster, ori_lon = lon, ori_lat = lat),
+        by = "origin"
+      ) %>%
+      left_join(
+        od_node %>% rename(destination = cluster, dest_lon = lon, dest_lat = lat),
+        by = "destination"
+      ) ,
     aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, size = n,
         alpha = n,
         col = n)
   ) +
   scale_color_gradient(low = "blue", high = "red") +
   scale_size(range = c(0.1, 1)) +
-  # scale_linewidth(range = c(0.1, 1)) +
   geom_point(
     data = od_node, aes(x = lon, y = lat), col = "white", size = 1
-  )
+  ) +
+  facet_wrap(.~ home_pref_grp)
 
 # Trajectory by visitor attr ----
 traj_simp_attr <- traj_simp %>%
