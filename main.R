@@ -541,6 +541,22 @@ seg_pair_od_prop %>%
   ggplot() +
   geom_line(aes(season, prop_sd, col = home_pref_grp, group = home_pref_grp))
 
+# OD network ----
+# Export csv file for Gephi.
+seg_pair_od %>%
+  ungroup() %>%
+  select(Source = origin, Target = destination) %>%
+  write.csv("od_edge.csv", row.names = FALSE)
+st_coordinates(gis_agoop_coord_sample) %>%
+  data.frame() %>%
+  rename_with(~ c("longitude", "latitude")) %>%
+  mutate(cluster = gis_agoop_coord_sample$cluster) %>%
+  group_by(cluster) %>%
+  summarise(longitude = median(longitude), latitude = median(latitude)) %>%
+  rename(Id = cluster, Latitude = latitude, Longitude = longitude) %>%
+  write.csv("od_node.csv", row.names = FALSE)
+# Manually make network plots in Gephi.
+
 # Trajectory by visitor attr ----
 traj_simp_attr <- traj_simp %>%
   left_join(vis_attr, by = "dailyid")
