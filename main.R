@@ -561,8 +561,14 @@ ggplot() +
   geom_sf(data = amami) +
   geom_curve(
     data = od_edge %>%
-      filter(!c(origin == 4 & destination == 5)) %>%
-      filter(!c(origin == 5 & destination == 4)) %>%
+      filter(
+        !c(origin == 4 & destination == 5),
+        !c(origin == 5 & destination == 4),
+        !is.na(home_pref_grp)
+      ) %>%
+      # filter(!c(origin == 4 & destination == 5)) %>%
+      # filter(!c(origin == 5 & destination == 4)) %>%
+      # filter(!is.na(home_pref_grp)) %>%
       group_by(home_pref_grp, origin, destination) %>%
       summarise(n = sum(n), .groups = "drop") %>%
       group_by(home_pref_grp) %>%
