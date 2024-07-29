@@ -240,6 +240,22 @@ ggplot() +
   theme(legend.position = "none")
 
 # General description ----
+# 每个人每小时有几个记录点？计算平均值、中位数、范围。
+gis_agoop_coord %>%
+  st_drop_geometry() %>%
+  # 每个人各个小时的记录数量。
+  group_by(dailyid, hour) %>%
+  summarise(hour_log = n(), .groups = "drop") %>%
+  # 每个人平均每小时记录数量。
+  group_by(1) %>%
+  summarise(
+    hour_log_mean = mean(hour_log),
+    hour_log_mid = median(hour_log),
+    hour_log_min = min(hour_log),
+    hour_log_max = max(hour_log),
+    .groups = "drop"
+  )
+
 # Dailyid of each quarter.
 gis_agoop_coord_sample %>%
   left_join(vis_attr) %>%
