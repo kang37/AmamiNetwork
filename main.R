@@ -1,6 +1,6 @@
 # Package ----
 pacman::p_load(
-  lubridate, dplyr, dbscan, sf, tmap, mapview,
+  lubridate, dplyr, dbscan, sf, tmap, mapview, stringi,
   ggplot2, tidyr, RColorBrewer, targets
 )
 tar_make()
@@ -730,6 +730,91 @@ traj_simp_attr %>%
   ggplot() +
   geom_point(aes(gender, n)) +
   facet_wrap(.~ traj_3, scales = "free")
+
+# 各种简化轨迹的数量分布。
+traj_simp %>%
+  group_by(seg_n, traj_3) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(seg_n, -n) %>%
+  mutate(traj_3 = factor(traj_3, levels = traj_3)) %>%
+  # Remove n_loc more than 4.
+  filter(seg_n <= 4) %>%
+  group_by(seg_n) %>%
+  slice_head(n = 15) %>%
+  ggplot() +
+  geom_col(aes(traj_3, n, fill = as.character(seg_n))) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(
+    x = "Simplified trajectory", y = "Number of Daily ID",
+    fill = "Location\nNumber"
+  )
+
+# 各种seg_n对应的主要motif。
+motif_smry <- traj_simp %>%
+  group_by(seg_n, traj_3) %>%
+  summarise(dailyid_n = n(), .groups = "drop") %>%
+  # 各种motif占seg_n组内的比例。
+  group_by(seg_n) %>%
+  mutate(n_prop_in_grp = dailyid_n / sum(dailyid_n)) %>%
+  ungroup() %>%
+  arrange(seg_n, -n_prop_in_grp) %>%
+  # 各种motif占总体的比例。
+  mutate(n_prop_tot = dailyid_n / sum(dailyid_n)) %>%
+  # 可以归入哪种motif。
+  mutate(motif = case_when(
+    seg_n == 0 ~ "1loc",
+    seg_n == 2 &
+      stri_detect_fixed(traj_3, "0-1") & !stri_detect_fixed(traj_3, "1-0") ~
+      "2loc-chain",
+    seg_n == 2 &
+      stri_detect_fixed(traj_3, "0-1") & stri_detect_fixed(traj_3, "1-0") ~
+      "2loc-full",
+    seg_n == 3 &
+      stri_detect_fixed(traj_3, "0-1") & !stri_detect_fixed(traj_3, "1-0") &
+      stri_detect_fixed(traj_3, "1-2") & !stri_detect_fixed(traj_3, "2-1") &
+      !stri_detect_fixed(traj_3, "0-2") & !stri_detect_fixed(traj_3, "2-0") ~
+      "3loc-chain",
+    seg_n == 3 &
+      stri_detect_fixed(traj_3, "0-1") & stri_detect_fixed(traj_3, "1-0") &
+      !stri_detect_fixed(traj_3, "1-2") & !stri_detect_fixed(traj_3, "2-1") &
+      stri_detect_fixed(traj_3, "0-2") & !stri_detect_fixed(traj_3, "2-0") ~
+      "3loc-center",
+    seg_n == 3 &
+      stri_detect_fixed(traj_3, "0-1") & !stri_detect_fixed(traj_3, "1-0") &
+      stri_detect_fixed(traj_3, "1-2") & stri_detect_fixed(traj_3, "2-1") &
+      !stri_detect_fixed(traj_3, "0-2") & !stri_detect_fixed(traj_3, "2-0") ~
+      "3loc-chain-1late-back",
+    seg_n == 3 &
+      stri_detect_fixed(traj_3, "0-1") & !stri_detect_fixed(traj_3, "1-0") &
+      stri_detect_fixed(traj_3, "1-2") & !stri_detect_fixed(traj_3, "2-1") &
+      !stri_detect_fixed(traj_3, "0-2") & stri_detect_fixed(traj_3, "2-0") ~
+      "3loc-loop",
+    seg_n == 3 &
+      stri_detect_fixed(traj_3, "0-1") & stri_detect_fixed(traj_3, "1-0") &
+      stri_detect_fixed(traj_3, "1-2") & !stri_detect_fixed(traj_3, "2-1") &
+      !stri_detect_fixed(traj_3, "0-2") & !stri_detect_fixed(traj_3, "2-0") ~
+      "3loc-chain-1early-back"
+  ))
+
+# 占比：前5个取比例值，其他的归入“其他”中。
+motif_smry %>%
+  group_by(seg_n) %>%
+  mutate(motif = case_when(
+    is.na(motif) ~ paste0(seg_n, "loc_other"), TRUE ~ motif
+  )) %>%
+  group_by(seg_n, motif) %>%
+  summarise(
+    dailyid_n = sum(dailyid_n),
+    n_prop_in_grp = sum(n_prop_in_grp),
+    n_prop_tot = sum(n_prop_tot),
+    .groups = "drop"
+  ) %>%
+  filter(seg_n == 2) %>%
+  ggplot() +
+  geom_bar(aes("", dailyid_n, fill = motif), stat = "identity") +
+  coord_polar("y", start = 0) +
+  theme_void()
 
 ## Number of destination ----
 # 本地人和游客四季旅途中经过的地点个数有何不同？
