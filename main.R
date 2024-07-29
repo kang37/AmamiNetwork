@@ -94,6 +94,28 @@ gis_agoop_coord <- gis_agoop_coord %>%
 # Export 1-50 examples, some of them are not valid.
 # get_anim(1)
 
+# 选择三个dailyid展示轨迹点。
+example_dailyid <- gis_agoop_coord %>%
+  st_drop_geometry() %>%
+  # 每个人各个小时的记录数量。
+  group_by(dailyid) %>%
+  summarise(log = n(), .groups = "drop") %>%
+  arrange(-log) %>%
+  # 选择2个。
+  .[3:4, ] %>%
+  pull(dailyid)
+# 可视化轨迹。
+gis_agoop_coord %>%
+  filter(dailyid == example_dailyid[1]) %>%
+  mutate(dailyid_short = substr(dailyid, 1, 5)) %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+  mapview(zcol = "hour", col.region = colorRampPalette(c("red", "yellow", "blue")))
+gis_agoop_coord %>%
+  filter(dailyid == example_dailyid[2]) %>%
+  mutate(dailyid_short = substr(dailyid, 1, 5)) %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+  mapview(zcol = "hour", col.region = colorRampPalette(c("red", "yellow", "blue")))
+
 # Cluster ----
 # Clusters of logs.
 # Bug: Need to determine minPts and eps first, manually. If k is larger, the calc is slower. The following plot takes 2 min.
