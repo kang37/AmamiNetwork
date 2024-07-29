@@ -1,6 +1,6 @@
 # Package ----
 pacman::p_load(
-  moveVis, move, lubridate, dplyr, dbscan, sf,
+  lubridate, dplyr, dbscan, sf, tmap, mapview,
   ggplot2, tidyr, RColorBrewer, targets
 )
 tar_make()
@@ -218,6 +218,7 @@ ggplot() +
   theme(legend.position = "none")
 
 # General description ----
+# Dailyid of each quarter.
 gis_agoop_coord_sample %>%
   left_join(vis_attr) %>%
   st_drop_geometry() %>%
@@ -306,6 +307,13 @@ seg %>%
   summarise(cluster_n = n(), .groups = "drop") %>%
   ggplot() +
   geom_histogram(aes(cluster_n), binwidth = 1)
+seg %>%
+  select(dailyid, seg_id) %>%
+  distinct() %>%
+  group_by(dailyid) %>%
+  summarise(cluster_n = n(), .groups = "drop") %>%
+  group_by(cluster_n) %>%
+  summarise(n = n(), .groups = "drop")
 
 # In each mode, what is the structure?
 # Bug: Take cluster 1 as an example.
@@ -420,6 +428,10 @@ traj_simp <- seg_time %>%
   mutate(traj_2 = lapply(traj_1, map_traj) %>% unlist()) %>%
   # Further merge traj_2.
   mutate(traj_3 = lapply(traj_2, merge_traj) %>% unlist())
+traj_simp$seg_n <- strsplit(traj_simp$traj_3, "-") %>%
+  lapply(., max) %>%
+  unlist()
+traj_simp$seg_n <- as.numeric(traj_simp$seg_n) + 1
 
 table(traj_simp$traj_1) %>%
   data.frame() %>%
