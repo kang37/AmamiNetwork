@@ -535,7 +535,6 @@ vis_attr <-
     # )
   )
 
-
 seg_pair_od_local_prop <-
   seg_pair_od %>%
   left_join(vis_attr) %>%
@@ -554,7 +553,9 @@ seg_pair_od_local_prop %>%
   scale_fill_gradient2(high = "red", mid = "white", low = "blue") +
   theme(axis.ticks.x = element_blank()) +
   geom_text(aes(label = round(prop, 2)*100), col = "black", size = 3) +
-  facet_wrap(.~ home_pref_grp, scales = "free")
+  facet_wrap(.~ home_pref_grp, scales = "free", ncol = 1) +
+  labs(x = "Origin", y = "Destination", fill = "Proportion") +
+  theme(legend.position = "bottom")
 
 # 计算基尼指数和SD。
 seg_pair_od_local_prop %>%
@@ -585,7 +586,7 @@ seg_pair_od_local_quarter_prop %>%
   scale_fill_gradient2(high = "red", mid = "white", low = "blue") +
   theme(axis.ticks.x = element_blank()) +
   geom_text(aes(label = round(prop, 2)*100), col = "black", size = 3) +
-  facet_grid(season ~ home_pref_grp)
+  facet_grid(home_pref_grp ~ season)
 
 # 计算基尼指数。
 library(DescTools)
@@ -640,12 +641,11 @@ ggplot() +
         od_node %>% rename(destination = cluster, dest_lon = lon, dest_lat = lat),
         by = "destination"
       ) ,
-    aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, size = n,
-        alpha = n,
-        col = n)
+    aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, linewidth = n,
+        alpha = n, col = n)
   ) +
   scale_color_gradient(low = "blue", high = "red") +
-  scale_size(range = c(0.1, 1)) +
+  scale_linewidth(range = c(0.1, 1)) +
   geom_point(
     data = od_node, aes(x = lon, y = lat), col = "grey", size = 3.5
   ) +
@@ -675,7 +675,7 @@ ggplot() +
       group_by(home_gender, season, origin, destination) %>%
       summarise(n = sum(n), .groups = "drop") %>%
       group_by(home_gender, season) %>%
-      mutate(n = n / max(n)) %>%
+      mutate(n = n / sum(n)) %>%
       left_join(
         od_node %>% rename(origin = cluster, ori_lon = lon, ori_lat = lat),
         by = "origin"
@@ -685,11 +685,10 @@ ggplot() +
         by = "destination"
       ) ,
     aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, size = n,
-        alpha = n,
-        col = n)
+        alpha = n, col = n)
   ) +
   scale_color_gradient(low = "blue", high = "red") +
-  scale_size(range = c(0.1, 1)) +
+  scale_size(range = c(0.2, 1)) +
   geom_point(
     data = od_node, aes(x = lon, y = lat), col = "grey", size = 3.5
   ) +
@@ -700,6 +699,30 @@ ggplot() +
   theme_bw() +
   theme(legend.position = "none") +
   facet_grid(home_gender ~ season)
+
+# 各个格子的多样性系数。
+od_edge %>%
+  filter(
+    !c(origin == 4 & destination == 5),
+    !c(origin == 5 & destination == 4),
+    !is.na(home_pref_grp),
+    home_pref_grp != "",
+    !is.na(gender),
+    gender != ""
+  ) %>%
+  mutate(home_gender = paste0(home_pref_grp, "-", gender)) %>%
+  group_by(home_pref_grp, gender, season, origin, destination) %>%
+  summarise(n = sum(n), .groups = "drop") %>%
+  group_by(home_pref_grp, gender, season) %>%
+  mutate(n = n / sum(n)) %>%
+  # Calculate Gini and SD of each cell.
+  group_by(home_pref_grp, gender, season) %>%
+  summarise(diversity = vegan::diversity(n, "shannon"), .groups = "drop") %>%
+  ggplot() +
+  geom_col(aes(season, diversity, fill = gender), position = "dodge") +
+  facet_wrap(home_pref_grp~., ncol = 1) +
+  labs(x = NULL, y = "Diversity", fill = "Gender") +
+  theme_bw()
 
 # Trajectory by visitor attr ----
 traj_simp_attr <- traj_simp %>%
