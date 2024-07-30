@@ -904,11 +904,45 @@ motif_smry %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90))
 
-  filter(seg_n == 2) %>%
+rbind(
+  motif_smry %>%
+    group_by(seg_n) %>%
+    mutate(motif = case_when(
+      is.na(motif) ~ paste0(seg_n, "loc_other"), TRUE ~ motif
+    )) %>%
+    filter(gender != "") %>%
+    group_by(seg_n, motif, gender) %>%
+    summarise(dailyid_n = sum(dailyid_n), .groups = "drop") %>%
+    group_by(seg_n, motif) %>%
+    mutate(prop = dailyid_n / sum(dailyid_n)) %>%
+    ungroup() %>%
+    filter(seg_n <= 4) %>%
+    mutate(motif = factor(motif, levels = lvl_motif)) %>%
+    mutate(facet = "gender") %>%
+    select(motif, facet, facet_val = gender, prop),
+  motif_smry %>%
+    group_by(seg_n) %>%
+    mutate(motif = case_when(
+      is.na(motif) ~ paste0(seg_n, "loc_other"), TRUE ~ motif
+    )) %>%
+    filter(!is.na(home_pref_grp)) %>%
+    group_by(seg_n, motif, home_pref_grp) %>%
+    summarise(dailyid_n = sum(dailyid_n), .groups = "drop") %>%
+    group_by(seg_n, motif) %>%
+    mutate(prop = dailyid_n / sum(dailyid_n)) %>%
+    ungroup() %>%
+    filter(seg_n <= 4) %>%
+    mutate(motif = factor(motif, levels = lvl_motif)) %>%
+    mutate(facet = "home") %>%
+    select(motif, facet, facet_val = home_pref_grp, prop)
+) %>%
+  filter(!grepl("other", motif, .)) %>%
   ggplot() +
-  geom_bar(aes("", dailyid_n, fill = motif), stat = "identity") +
-  coord_polar("y", start = 0) +
-  theme_void()
+  geom_col(aes(motif, prop, fill = facet_val)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_wrap(.~ facet, ncol = 1) +
+  labs(x = NULL, y = "Proportion")
 
 ## Number of destination ----
 # 本地人和游客四季旅途中经过的地点个数有何不同？
