@@ -751,11 +751,11 @@ traj_simp %>%
   )
 
 # 各种seg_n对应的主要motif。
-motif_smry <- traj_simp %>%
-  group_by(seg_n, traj_3) %>%
+motif_smry <- traj_simp_attr %>%
+  group_by(seg_n, traj_3, gender, home_pref_grp) %>%
   summarise(dailyid_n = n(), .groups = "drop") %>%
   # 各种motif占seg_n组内的比例。
-  group_by(seg_n) %>%
+  group_by(seg_n, gender, home_pref_grp) %>%
   mutate(n_prop_in_grp = dailyid_n / sum(dailyid_n)) %>%
   ungroup() %>%
   arrange(seg_n, -n_prop_in_grp) %>%
@@ -763,7 +763,7 @@ motif_smry <- traj_simp %>%
   mutate(n_prop_tot = dailyid_n / sum(dailyid_n)) %>%
   # 可以归入哪种motif。
   mutate(motif = case_when(
-    seg_n == 0 ~ "1loc",
+    seg_n == 1 ~ "1loc",
     seg_n == 2 &
       stri_detect_fixed(traj_3, "0-1") & !stri_detect_fixed(traj_3, "1-0") ~
       "2loc-chain",
@@ -821,7 +821,7 @@ motif_smry <- traj_simp %>%
       "4loc-loop"
   ))
 
-# 占比：前5个取比例值，其他的归入“其他”中。
+# 占比：前5个取比例值，其他的归入“其他”中，计算各种motif在seg_n组内的比例，以及占所有motif的比例。
 motif_smry %>%
   group_by(seg_n) %>%
   mutate(motif = case_when(
@@ -834,6 +834,53 @@ motif_smry %>%
     n_prop_tot = sum(n_prop_tot),
     .groups = "drop"
   )
+
+# Factor levels of motif by proportion.
+lvl_motif <- motif_smry %>%
+  group_by(seg_n) %>%
+  mutate(motif = case_when(
+    is.na(motif) ~ paste0(seg_n, "loc_other"), TRUE ~ motif
+  )) %>%
+  group_by(seg_n, motif) %>%
+  summarise(n_prop_tot = sum(n_prop_tot), .groups = "drop") %>%
+  arrange(-n_prop_tot) %>%
+  pull(motif)
+
+# 计算各motif中性别占比、客源占比。
+motif_smry %>%
+  group_by(seg_n) %>%
+  mutate(motif = case_when(
+    is.na(motif) ~ paste0(seg_n, "loc_other"), TRUE ~ motif
+  )) %>%
+  filter(gender != "") %>%
+  group_by(seg_n, motif, gender) %>%
+  summarise(dailyid_n = sum(dailyid_n), .groups = "drop") %>%
+  group_by(seg_n, motif) %>%
+  mutate(prop = dailyid_n / sum(dailyid_n)) %>%
+  filter(seg_n <= 4) %>%
+  mutate(motif = factor(motif, levels = lvl_motif)) %>%
+  ggplot() +
+  geom_col(aes(motif, prop, fill = gender)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+
+motif_smry %>%
+  group_by(seg_n) %>%
+  mutate(motif = case_when(
+    is.na(motif) ~ paste0(seg_n, "loc_other"), TRUE ~ motif
+  )) %>%
+  filter(!is.na(home_pref_grp)) %>%
+  group_by(seg_n, motif, home_pref_grp) %>%
+  summarise(dailyid_n = sum(dailyid_n), .groups = "drop") %>%
+  group_by(seg_n, motif) %>%
+  mutate(prop = dailyid_n / sum(dailyid_n)) %>%
+  filter(seg_n <= 4) %>%
+  mutate(motif = factor(motif, levels = lvl_motif)) %>%
+  ggplot() +
+  geom_col(aes(motif, prop, fill = home_pref_grp)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+
   filter(seg_n == 2) %>%
   ggplot() +
   geom_bar(aes("", dailyid_n, fill = motif), stat = "identity") +
