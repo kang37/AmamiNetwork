@@ -794,7 +794,31 @@ motif_smry <- traj_simp %>%
       stri_detect_fixed(traj_3, "0-1") & stri_detect_fixed(traj_3, "1-0") &
       stri_detect_fixed(traj_3, "1-2") & !stri_detect_fixed(traj_3, "2-1") &
       !stri_detect_fixed(traj_3, "0-2") & !stri_detect_fixed(traj_3, "2-0") ~
-      "3loc-chain-1early-back"
+      "3loc-chain-1early-back",
+    seg_n == 4 &
+      stri_detect_fixed(traj_3, "0-1") & !stri_detect_fixed(traj_3, "1-0") &
+      stri_detect_fixed(traj_3, "1-2") & !stri_detect_fixed(traj_3, "2-1") &
+      stri_detect_fixed(traj_3, "2-3") & !stri_detect_fixed(traj_3, "3-2") &
+      !stri_detect_fixed(traj_3, "0-3") & !stri_detect_fixed(traj_3, "3-0") &
+      !stri_detect_fixed(traj_3, "0-2") & !stri_detect_fixed(traj_3, "2-0") &
+      !stri_detect_fixed(traj_3, "1-3") & !stri_detect_fixed(traj_3, "3-1") ~
+      "4loc-chain",
+    seg_n == 4 &
+      stri_detect_fixed(traj_3, "0-1") & stri_detect_fixed(traj_3, "1-0") &
+      !stri_detect_fixed(traj_3, "1-2") & !stri_detect_fixed(traj_3, "2-1") &
+      stri_detect_fixed(traj_3, "2-3") & !stri_detect_fixed(traj_3, "3-2") &
+      !stri_detect_fixed(traj_3, "0-3") & !stri_detect_fixed(traj_3, "3-0") &
+      stri_detect_fixed(traj_3, "0-2") & !stri_detect_fixed(traj_3, "2-0") &
+      !stri_detect_fixed(traj_3, "1-3") & !stri_detect_fixed(traj_3, "3-1") ~
+      "4loc-chain-1early-back",
+    seg_n == 4 &
+      stri_detect_fixed(traj_3, "0-1") & !stri_detect_fixed(traj_3, "1-0") &
+      stri_detect_fixed(traj_3, "1-2") & !stri_detect_fixed(traj_3, "2-1") &
+      stri_detect_fixed(traj_3, "2-3") & !stri_detect_fixed(traj_3, "3-2") &
+      !stri_detect_fixed(traj_3, "0-3") & stri_detect_fixed(traj_3, "3-0") &
+      !stri_detect_fixed(traj_3, "0-2") & !stri_detect_fixed(traj_3, "2-0") &
+      !stri_detect_fixed(traj_3, "1-3") & !stri_detect_fixed(traj_3, "3-1") ~
+      "4loc-loop"
   ))
 
 # 占比：前5个取比例值，其他的归入“其他”中。
@@ -809,7 +833,7 @@ motif_smry %>%
     n_prop_in_grp = sum(n_prop_in_grp),
     n_prop_tot = sum(n_prop_tot),
     .groups = "drop"
-  ) %>%
+  )
   filter(seg_n == 2) %>%
   ggplot() +
   geom_bar(aes("", dailyid_n, fill = motif), stat = "identity") +
