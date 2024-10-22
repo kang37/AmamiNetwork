@@ -122,18 +122,6 @@ list(
       ggplot() +
       geom_col(aes(month, num))
   ),
-  # Kinsakubaru range.
-  # Bug: Rough range.
-  tar_target(
-    kinsakubaru,
-    data.frame(
-      lon = 129.44814145842295,
-      lat = 28.339060364857982
-    ) %>%
-      st_as_sf(coords = c("lon", "lat")) %>%
-      st_set_crs(6668) %>%
-      st_buffer(dist = 1000)
-  ),
   # Keep the dailyid with log inside the Kinsakubaru.
   # Bug: Take an example.
   # The dailyid with most logs.
@@ -146,79 +134,6 @@ list(
       ungroup() %>%
       arrange(-n_log)
   ),
-  # Function to get the relationship of each point in a multi-points object and a polygon.
-  tar_target(
-    get_inter_id,
-    function(point_x, polygon_x) {
-      res <- st_intersects(point_x, polygon_x)
-      res[unlist(lapply(res, function(x) length(x) == 0))] <- 0
-      res <- unlist(res)
-      return(res)
-    }
-  ),
-  # Boundary of target area.
-  tar_target(
-    kinsakubaru_coord,
-    st_coordinates(kinsakubaru) %>%
-      as.data.frame() %>%
-      tibble() %>%
-      select(X, Y) %>%
-      rename_with(~ c("long", "lat"))
-  ),
-  tar_target(
-    kinsakubaru_boundary,
-    data.frame(
-      long_min = min(kinsakubaru_coord$long),
-      long_max = max(kinsakubaru_coord$long),
-      lat_min = min(kinsakubaru_coord$lat),
-      lat_max = max(kinsakubaru_coord$lat)
-    )
-  ),
-  # Remove the logs out of the target area boundary.
-  tar_target(
-    gis_agoop_screen,
-    cbind(
-      gis_agoop,
-      st_coordinates(gis_agoop) %>%
-        as.data.frame() %>%
-        select(X, Y) %>%
-        rename_with(~ c("long", "lat"))
-    ) %>%
-      filter(
-        long >= kinsakubaru_boundary$long_min,
-        long <= kinsakubaru_boundary$long_max,
-        lat >= kinsakubaru_boundary$lat_min,
-        lat <= kinsakubaru_boundary$lat_max
-      )
-  ),
-  # Add information column of the intersect relationship between the sample points data and the Kinsakubaru polygon.
-  # Bug: Takes about 5 hours.
-  tar_target(
-    gis_agoop_inter,
-    gis_agoop_screen %>%
-      mutate(inter = get_inter_id(gis_agoop_screen, kinsakubaru))
-  ),
-  tar_target(
-    gis_agoop_inter_dailyid,
-    gis_agoop_inter %>%
-      group_by(dailyid) %>%
-      summarise(inter = sum(inter) > 0) %>%
-      ungroup() %>%
-      filter(inter) %>%
-      pull(dailyid)
-  ),
-  # tar_target(
-  #   gis_agoop_kinsakubaru,
-  #   gis_agoop_inter %>%
-  #     filter(dailyid %in% gis_agoop_inter_dailyid) %>%
-  #     mutate(time = hour * 60 + minute) %>%
-  #     arrange(month, day, dailyid, time) %>%
-  #     # Add holiday information.
-  #     mutate(date = as_date(paste(year, month, day, sep = "-"))) %>%
-  #     left_join(holiday, by = "date") %>%
-  #     # Add weather column.
-  #     left_join(weather, by = "date")
-  # ),
   tar_target(
     gis_agoop_coord_pre,
     gis_agoop %>%
@@ -239,6 +154,56 @@ list(
       tibble() %>%
       # Bug: Eliminate logs out of the island. Should have done that for the raw data.
       filter(lat > 28.10, lat < 28.55, lon > 129.13, lon < 129.73)
+  ),
+  tar_target(
+    gis_agoop_coord_filt,
+    gis_agoop_coord %>%
+      # Conclusion: most dailyid start at 0 and end at 24. Can only keep the dailyid with min start time <= 22 and max end time >= 4.
+      # Keep trajectory points between 4 and 22 everyday.
+      filter(hour <= 22, hour >= 4) %>%
+      # Make date time.
+      mutate(time = as_datetime(
+        paste(
+          paste(year, month, day, sep = "-"),
+          paste(hour, minute, "00", sep = "-"),
+          sep = " "
+        )
+      )) %>%
+      # If 2 points at the same time, keep only one with higher accuracy.
+      arrange(dailyid, time, accuracy) %>%
+      group_by(dailyid, time) %>%
+      mutate(position_conflict_id = row_number()) %>%
+      ungroup() %>%
+      filter(position_conflict_id == 1) %>%
+      select(-position_conflict_id) %>%
+      # 删除活动时间范围较小的dailyID：记录分布少于3个小时的删除。
+      group_by(dailyid) %>%
+      mutate(n_hour = length(unique(hour))) %>%
+      ungroup() %>%
+      filter(n_hour > 3) %>%
+      select(-n_hour)
+  ),
+  tar_target(
+    # 定义地点范围。
+    # Bug: Need to determine minPts and eps first, manually. If k is larger, the calc is slower. The following plot takes 2 min.
+    # 各个轨迹点落在哪个地点内。
+    # 谢于松地点定义文件。
+    # 漏洞：ID列编号不连续；坐标是什么。
+    loc,
+    st_read(dsn = "data_raw/loc_def", layer = "大区域与勾画的进行重叠和叠加") %>%
+      st_set_crs(4326) %>%
+      select(loc_id = OBJECTID)
+  ),
+  tar_target(
+    # Bug: Take sample for clustering.
+    # 漏洞：取1/200-1/100样本，需要4-5分钟。
+    gis_agoop_coord_cluster,
+    gis_agoop_coord_filt %>%
+      head(100000) %>%
+      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+      st_intersection(loc) %>%
+      # 漏洞：应早点重命名。
+      rename("cluster" = "loc_id")
   )
 )
 

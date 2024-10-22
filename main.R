@@ -5,279 +5,80 @@ pacman::p_load(
 )
 tar_make()
 tar_load(amami)
-tar_load(gis_agoop_coord)
-# Min start hour and max end hour of the dailyid.
-gis_agoop_coord %>%
-  group_by(dailyid) %>%
-  summarise(min_hour = min(hour)) %>%
-  ungroup() %>%
-  ggplot() +
-  geom_histogram(aes(min_hour))
-gis_agoop_coord %>%
-  group_by(dailyid) %>%
-  summarise(max_hour = max(hour)) %>%
-  ungroup() %>%
-  ggplot() +
-  geom_histogram(aes(max_hour))
-# Conclusion: most dailyid start at 0 and end at 24. Can only keep the dailyid with min start time <= 22 and max end time >= 4.
+tar_load(gis_agoop_coord_cluster)
+tar_load(loc)
+tar_load(pref_city_code)
 
-gis_agoop_coord <- gis_agoop_coord %>%
-  # Keep trajectory points between 4 and 22 everyday.
-  filter(hour <= 22, hour >= 4) %>%
-  # Make date time.
-  mutate(time = as_datetime(
-    paste(
-      paste(year, month, day, sep = "-"),
-      paste(hour, minute, "00", sep = "-"),
-      sep = " "
-    )
-  )) %>%
-  # If 2 points at the same time, keep only one with higher accuracy.
-  arrange(dailyid, time, accuracy) %>%
-  group_by(dailyid, time) %>%
-  mutate(position_conflict_id = row_number()) %>%
-  ungroup() %>%
-  filter(position_conflict_id == 1) %>%
-  select(-position_conflict_id)
-
-# Trajectory animation ----
-# Bug: Cluster based on visitor data, while trajectory anima based on whole data.
-# Function to get trajectory_animation.gif by dailyid.
-# get_anim <- function(dailyid_id) {
-#   # Make move file with GIS data of a dailyid.
-#   gis_agoop_head <- gis_agoop_ %>%
-#     filter(dailyid == temp_id_num$dailyid[dailyid_id]) %>%
-#     st_transform(4326)
-#   gis_agoop_head_coord <- st_coordinates(gis_agoop_head) %>%
-#     data.frame() %>%
-#     tibble() %>%
-#     rename_with(~c("x", "y"))
-#   gis_agoop_head <-
-#     gis_agoop_head %>%
-#     cbind(gis_agoop_head_coord) %>%
-#     mutate(time = as_datetime(
-#       paste(
-#         paste(year, month, day, sep = "-"),
-#         paste(hour, minute, "00", sep = "-"),
-#         sep = " "
-#       )
-#     )) %>%
-#     arrange(time) %>%
-#     # Keep only one log for a unique hour-minute.
-#     # Bug: Should group by time (minute).
-#     group_by(hour) %>%
-#     mutate(rowid = row_number()) %>%
-#     ungroup() %>%
-#     filter(rowid == 1)
-#   move_data <- move(
-#     x = gis_agoop_head$x, y = gis_agoop_head$y,
-#     time = gis_agoop_head$time,
-#     proj = projection(gis_agoop_head)
-#   )
-#
-#   # Align move_data to a uniform time scale.
-#   m <- align_move(move_data, res = "mean")
-#
-#   frames <- frames_spatial(m, alpha = 0.5) %>%
-#     add_labels(x = "Longitude", y = "Latitude") %>%
-#     add_northarrow() %>%
-#     add_scalebar() %>%
-#     add_timestamps(type = "label") %>%
-#     add_progress()
-#
-#   # Animate frames.
-#   animate_frames(
-#     frames, out_file = paste0("data_edited/", dailyid_id, ".gif"),
-#     display = FALSE, fps = 1
-#   )
-# }
-# Export 1-50 examples, some of them are not valid.
-# get_anim(1)
-
+# 漏洞：增加本地/外地区分。
+gis_agoop_coord_cluster <- gis_agoop_coord_cluster %>%
+  mutate(source = case_when(
+    home_citycode %in% c(
+      "46222", "46505", "46502", "46504", "46501", "46506", "46521",
+      "46522", "46523"
+    ) ~ "local",
+    TRUE ~ "tourist"
+  ))
 # 选择三个dailyid展示轨迹点。
-example_dailyid <- gis_agoop_coord %>%
+example_dailyid <- gis_agoop_coord_cluster %>%
   st_drop_geometry() %>%
   # 每个人各个小时的记录数量。
   group_by(dailyid) %>%
   summarise(log = n(), .groups = "drop") %>%
   arrange(-log) %>%
-  # 选择2个。
-  .[3:4, ] %>%
-  pull(dailyid)
+  pull(dailyid) %>%
+  head(10)
 # 可视化轨迹。
-gis_agoop_coord %>%
-  filter(dailyid == example_dailyid[1]) %>%
+gis_agoop_coord_cluster %>%
+  filter(dailyid == example_dailyid[7]) %>%
   mutate(dailyid_short = substr(dailyid, 1, 5)) %>%
   st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
   mapview(zcol = "hour", col.region = colorRampPalette(c("red", "yellow", "blue")))
-gis_agoop_coord %>%
-  filter(dailyid == example_dailyid[2]) %>%
-  mutate(dailyid_short = substr(dailyid, 1, 5)) %>%
-  st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-  mapview(zcol = "hour", col.region = colorRampPalette(c("red", "yellow", "blue")))
-
-# Cluster ----
-# Clusters of logs.
-# Bug: Need to determine minPts and eps first, manually. If k is larger, the calc is slower. The following plot takes 2 min.
-# Bug: Take sample for clustering.
-set.seed(1234)
-gis_agoop_coord_sample_1 <-
-  gis_agoop_coord[sample(nrow(gis_agoop_coord), nrow(gis_agoop_coord) / 10), ]
-dbscan::kNNdistplot(gis_agoop_coord_sample_1[c("lon", "lat")], k = 300)
-abline(h = 0.01, lty = 2, col = rainbow(1), main = "eps optimal value")
-cluster_res <-
-  dbscan(gis_agoop_coord_sample_1[c("lon", "lat")], eps = 0.01, minPts = 300)
-cluster_res
-gis_agoop_coord_sample_1 <- gis_agoop_coord_sample_1 %>%
-  mutate(cluster = cluster_res$cluster)
-ggplot() +
-  geom_sf(data = amami) +
-  geom_sf(
-    data = gis_agoop_coord_sample_1 %>%
-      filter(cluster != 0) %>%
-      group_by(cluster) %>%
-      slice_sample(n = 100) %>%
-      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant"),
-    aes(col = as.character(cluster)), alpha = 0.5
-  ) +
-  geom_sf_label(
-    data = gis_agoop_coord_sample_1 %>%
-      filter(cluster != 0) %>%
-      group_by(cluster) %>%
-      slice_sample(n = 1) %>%
-      ungroup() %>%
-      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant"),
-    aes(label = cluster, col = as.character(cluster)), alpha = 0.9
-  )
-
-# Further cluster c1.
-gis_agoop_coord_sample_2 <- gis_agoop_coord_sample_1 %>%
-  # Need to check if the wanted cluster is picked.
-  filter(cluster == 1)
-# dbscan::kNNdistplot(gis_agoop_coord_sample_2[c("lon", "lat")], k = 300)
-# abline(h = 0.01, lty = 2, col = rainbow(1), main = "eps optimal value")
-cluster_res_c1 <-
-  dbscan(gis_agoop_coord_sample_2[c("lon", "lat")], eps = 0.007, minPts = 300)
-cluster_res_c1
-gis_agoop_coord_sample_2 <- gis_agoop_coord_sample_2 %>%
-  mutate(cluster = cluster_res_c1$cluster) %>%
-  mutate(cluster = cluster + 10)
-ggplot() +
-  geom_sf(data = amami) +
-  geom_sf(
-    data = gis_agoop_coord_sample_2 %>%
-      filter(cluster != 10) %>%
-      group_by(cluster) %>%
-      slice_sample(n = 1000) %>%
-      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant"),
-    aes(col = as.character(cluster)), alpha = 0.1
-  )
-# Bind results from 2 cluster.
-gis_agoop_coord_sample <-
-  rbind(
-    gis_agoop_coord_sample_2,
-    filter(gis_agoop_coord_sample_1, cluster != 1)
-  ) %>%
-  st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant")
-
-# Plot with ggplot.
-# Bug: Need to identify if the clusters are overlap. This time, 3 and 9 are overlap.
-ggplot() +
-  geom_sf(data = amami) +
-  geom_sf(
-    data = gis_agoop_coord_sample %>%
-      filter(cluster != 0, cluster != 10) %>%
-      group_by(cluster) %>%
-      slice_sample(n = 1000),
-    aes(col = as.character(cluster)), alpha = 0.1
-  ) +
-  geom_sf_label(
-    data =
-      filter(gis_agoop_coord_sample, cluster != 0, cluster != 10) %>%
-      group_by(cluster) %>%
-      slice_head(n = 1),
-    aes(col = as.character(cluster), label = cluster),
-    alpha = 0.7, size = 2.5
-  ) +
-  theme_bw()
-
-# Change cluster id: from north to south, and from east to west.
-map_cluster_id <-
-  c(
-    0, 10, 11, 9, 6, 13, 12, 14, 2, 15, 16, 4, 8, 3, 5, 7,
-    0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
-  ) %>%
-  matrix(ncol = 2) %>%
-  data.frame() %>%
-  rename_with(~ c("cluster", "new_cluster"))
-
-gis_agoop_coord_sample <- gis_agoop_coord_sample %>%
-  left_join(map_cluster_id, by = "cluster") %>%
-  select(-cluster) %>%
-  rename(cluster = new_cluster) %>%
-  mutate(cluster = factor(cluster, levels = as.character(0:15)))
-
-# Plot with ggplot.
-ggplot() +
-  geom_sf(data = amami) +
-  geom_sf(
-    data = gis_agoop_coord_sample %>%
-      filter(cluster != 0) %>%
-      group_by(cluster) %>%
-      slice_sample(n = 3000),
-    aes(col = cluster), alpha = 0.1
-  ) +
-  geom_sf_label(
-    data =
-      filter(gis_agoop_coord_sample, cluster != 0) %>%
-      group_by(cluster) %>%
-      slice_head(n = 1),
-    aes(col = cluster, label = cluster), alpha = 0.7, size = 2.5
-  ) +
-  scale_color_manual(values = rep(brewer.pal(9, "Dark2"), 3)) +
-  labs(x = "Longitude", y = "Latitude") +
-  theme_bw() +
-  theme(legend.position = "none")
 
 # General description ----
-# 每个人每小时有几个记录点？计算平均值、中位数、范围。
-gis_agoop_coord %>%
+# 每个人每天有几个记录点？
+gis_agoop_coord_cluster %>%
   st_drop_geometry() %>%
-  # 每个人各个小时的记录数量。
-  group_by(dailyid, hour) %>%
-  summarise(hour_log = n(), .groups = "drop") %>%
-  # 每个人平均每小时记录数量。
-  group_by(1) %>%
-  summarise(
-    hour_log_mean = mean(hour_log),
-    hour_log_mid = median(hour_log),
-    hour_log_min = min(hour_log),
-    hour_log_max = max(hour_log),
-    .groups = "drop"
-  )
-
-# Dailyid of each quarter.
-gis_agoop_coord_sample %>%
-  left_join(vis_attr) %>%
-  st_drop_geometry() %>%
-  group_by(season) %>%
-  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop")
-
-# Change of dailyid number by source and month.
-vis_attr %>%
-  filter(!is.na(home_pref_grp)) %>%
-  group_by(home_pref_grp, month) %>%
-  summarise(n = n()) %>%
-  mutate(month = factor(month, levels = 1:12)) %>%
+  group_by(dailyid) %>%
+  summarise(n_log = n(), .groups = "drop") %>%
   ggplot() +
-  geom_col(aes(month, n)) +
-  facet_wrap(.~ home_pref_grp, ncol = 1, scales = "free")
+  geom_histogram(aes(n_log), col = "white") +
+  theme_bw()
+
+# 每个人每天滞留地点数量？
+gis_agoop_coord_cluster %>%
+  st_drop_geometry() %>%
+  group_by(dailyid) %>%
+  summarise(cluster_num = length(unique(cluster)), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(cluster_num), col = "white") +
+  theme_bw()
+
+# 每个月有多少人，本地和外地人分别多少？
+gis_agoop_coord_cluster %>%
+  st_drop_geometry() %>%
+  group_by(month, source) %>%
+  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+  ggplot() +
+  geom_col(aes(month, dailyid_num, fill = source))
+
+# 每个地点滞留多少人？
+gis_agoop_coord_cluster %>%
+  st_drop_geometry() %>%
+  group_by(cluster) %>%
+  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+  arrange(-dailyid_num) %>%
+  head(15) %>%
+  mutate(cluster = factor(cluster, levels = rev(cluster))) %>%
+  ggplot() +
+  geom_col(aes(cluster, dailyid_num)) +
+  coord_flip() +
+  theme_bw()
 
 # Trajectory between clusters ----
 # Further divide segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
 # Should further divid segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
 # Get segment ID for each dailyid.
-seg_id <- gis_agoop_coord_sample %>%
+seg_id <- gis_agoop_coord_cluster %>%
   st_drop_geometry() %>%
   arrange(dailyid, time) %>%
   group_by(dailyid) %>%
@@ -292,7 +93,7 @@ seg_id <- gis_agoop_coord_sample %>%
   mutate(seg_id = row_number())
 
 # The duration of stay of each dailyid in each segment.
-seg <- gis_agoop_coord_sample %>%
+seg <- gis_agoop_coord_cluster %>%
   # Add segment sequence.
   st_drop_geometry() %>%
   arrange(dailyid, hour) %>%
@@ -307,13 +108,17 @@ seg <- gis_agoop_coord_sample %>%
   # Bug: Duration of stat = 0 also excluded, might introduce bias from signal lose, i.e., only one points is recorded in a cluster.
   filter(duration_stay > 600) %>%
   # Turn duration of stay from second to minute.
-  mutate(duration_stay = as.numeric(duration_stay) / 60)
+  mutate(
+    duration_stay = as.numeric(duration_stay) / 60,
+    cluster = as.character(cluster)
+  )
 
-# Plot duration of stay of each cluster, based on segment duration stay data.
+# Plot duration of stay of each cluster for each visitor, based on segment duration stay data.
 ggplot(data = seg, aes(cluster, duration_stay)) +
   geom_boxplot() +
-  geom_jitter(alpha = 0.01) +
-  labs(x = "Cluster", y = "Duration of stay")
+  geom_jitter(alpha = 0.1) +
+  labs(x = "Cluster", y = "Duration of stay") +
+  coord_flip()
 # Table.
 seg %>%
   group_by(cluster) %>%
@@ -321,46 +126,36 @@ seg %>%
     mean_dur_stay = mean(duration_stay, na.rm = TRUE),
     mid_dur_stay = median(duration_stay, na.rm = TRUE),
     sd_dur_stay = sd(duration_stay, na.rm = TRUE),
+    vc_dur_stay = sd_dur_stay / mean_dur_stay,
     n_dur_stay = n()
   ) %>%
-  mutate(
-    se_dur_stay = sd_dur_stay / sqrt(n_dur_stay),
-    lower_ci =
-      mean_dur_stay - qt(1 - (0.05 / 2), n_dur_stay - 1) * se_dur_stay,
-    upper_ci =
-      mean_dur_stay + qt(1 - (0.05 / 2), n_dur_stay - 1) * se_dur_stay
-  ) %>%
-  select(cluster, mid_dur_stay, mean_dur_stay, lower_ci, upper_ci, sd_dur_stay)
+  select(cluster, mid_dur_stay, mean_dur_stay, sd_dur_stay, vc_dur_stay)
+
+# 平均来看，各个地点滞留时间是多久？
+# 漏洞：要计算每次滞留时间的平均，还是将每个人在同一个地点的滞留时间加起来呢？
+seg %>%
+  group_by(cluster) %>%
+  summarise(duration_stay = mean(duration_stay), .groups = "drop") %>%
+  arrange(-duration_stay)
 
 # Most visitors stay in a cluster; segment visited is similar to cluster visited number.
+# 每个人访问了多少个cluster。
 seg %>%
+  select(dailyid, cluster) %>%
+  distinct() %>%
   group_by(dailyid) %>%
   summarise(seg_n = n(), .groups = "drop") %>%
   ggplot() +
   geom_histogram(aes(seg_n), binwidth = 1)
-seg %>%
-  select(dailyid, seg_id) %>%
-  distinct() %>%
-  group_by(dailyid) %>%
-  summarise(cluster_n = n(), .groups = "drop") %>%
-  ggplot() +
-  geom_histogram(aes(cluster_n), binwidth = 1)
-seg %>%
-  select(dailyid, seg_id) %>%
-  distinct() %>%
-  group_by(dailyid) %>%
-  summarise(cluster_n = n(), .groups = "drop") %>%
-  group_by(cluster_n) %>%
-  summarise(n = n(), .groups = "drop")
 
 # In each mode, what is the structure?
-# Bug: Take cluster 1 as an example.
+# Bug: Take cluster 76 as an example.
 seg_time %>%
   left_join(
     seg_time %>%
       group_by(dailyid) %>%
       summarise(cluster_n = n(), .groups = "drop") %>%
-      filter(cluster_n == 1),
+      filter(cluster_n == 76),
     by = "dailyid"
   ) %>%
   filter(!is.na(cluster_n)) %>%
@@ -369,7 +164,7 @@ seg_time %>%
 
 # Pairwise movement matrix.
 # Has the data.frame been arranged in order?
-# If a dailyid mostly stay in a cluster, but s/he goes out of the cluster usually? Then "c1-edge-c1-edge-c1" will become "c1".
+# Bug: If a dailyid mostly stay in a cluster, but s/he goes out of the cluster usually? Then "c1-edge-c1-edge-c1" will become "c1".
 # Bug: It is equal to that we remove the dailyid who stays in a cluster for the whole day.
 seg_pair_od <- seg %>%
   arrange(dailyid, seg_id) %>%
@@ -510,7 +305,7 @@ for (i in top_traj_3$traj) {
 
 # OD pair diff ----
 vis_attr <-
-  gis_agoop_coord %>%
+  gis_agoop_coord_filt %>%
   # Bug: Should ungroup earlier.
   ungroup() %>%
   st_drop_geometry() %>%
@@ -604,10 +399,10 @@ seg_pair_od_prop %>%
 
 # OD network ----
 # By source prefecture.
-od_node <- st_coordinates(gis_agoop_coord_sample) %>%
+od_node <- st_coordinates(gis_agoop_coord_filt_sample) %>%
   data.frame() %>%
   rename_with(~ c("longitude", "latitude")) %>%
-  mutate(cluster = gis_agoop_coord_sample$cluster) %>%
+  mutate(cluster = gis_agoop_coord_filt_sample$cluster) %>%
   group_by(cluster) %>%
   summarise(lon = median(longitude), lat = median(latitude))
 od_edge <-
@@ -978,3 +773,4 @@ seg %>%
   ggplot() +
   geom_col(aes(season, prop, fill = as.character(seg_n))) +
   facet_grid(gender ~ home_pref_grp, scales = "free_y")
+

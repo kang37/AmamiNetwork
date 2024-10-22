@@ -1,0 +1,105 @@
+---
+title: "Amami transportation net study"
+author: "Kang"
+format: html
+editor: visual
+execute: 
+  echo: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| echo: false
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## 数据构建
+
+原始数据为2018年间到达奄美群岛的所有手机用户每天的轨迹。数据形式类似于：用户1在时刻1的位置，时刻2的数据，时刻3的数据；用户2在时刻1的数据，时刻2的数据，等等。有些人轨迹比较多，有些人被收集到的轨迹比较少。从原始数据中去除轨迹点特别少的用户，因为如果轨迹点太少，我们无法分析其每天的移动轨迹。注意这里的\"用户\"是指一天内的一位独立用户，例如，有个人两天都待在奄美群岛上，则会被识别为两个用户号（在数据中被称为\"DailyID\"）。另外，由于主要活动时间段为上午4时到晚上10时，因此这些时间段之外的轨迹点也去除。由于数据太大，我先取了一部分数据来做分析，这部分筛选后的数据包含1554个DailyID的7万个轨迹点。
+
+挑出其中一个DailyID为例子，可视化一下他/她当天的轨迹：从奄美市内出发，中午到海湾附近的另一个聚居地，晚上又回到了奄美市内。
+
+```{r}
+# 可视化轨迹。
+gis_agoop_coord_cluster %>%
+  filter(dailyid == example_dailyid[7]) %>%
+  mutate(dailyid_short = substr(dailyid, 1, 5)) %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+  mapview(zcol = "hour", col.region = colorRampPalette(c("red", "yellow", "blue")))
+```
+
+将这些轨迹点和谢于松做的地点多边形叠加，就获得了每个DailyID的地点顺序轨迹。例如，上面这个人的轨迹如下表所示，就是早上一直在地点76待着，11-15时在地点75和地点76之间来回，15时之后返回了地点76。
+
+```{r}
+library(knitr)
+library(kableExtra)
+gis_agoop_coord_cluster %>%
+  st_drop_geometry() %>% 
+  filter(dailyid == example_dailyid[7]) %>%
+  arrange(hour, minute) %>% 
+  select(month, day, hour, cluster) %>% 
+  distinct() %>% 
+  kable()
+```
+
+根据每个人的轨迹，就可以计算每个人在各个地点滞留的时间。注意，如果一个人从一个地点离开，之后再进入该地点，对于该地点需要计算两段滞留时间。例如，刚才例子中那位用户的每一段滞留地点和时间如下（单位：分钟）。
+
+```{r}
+seg %>% 
+  st_drop_geometry() %>% 
+  filter(dailyid == example_dailyid[7]) %>% 
+  select(seg_id, cluster, duration_stay) %>% 
+  arrange(seg_id) %>% 
+  kable()
+```
+
+## 常规描述
+
+每个人每天滞留的地点数量。可见待在一个地方的人最多，但是和之前的研究不同，一天内只待在一个地点的人并没有远远超过其他组。此外，大部分人每天滞留的地点不超过10个。
+
+```{r}
+gis_agoop_coord_cluster %>%
+  st_drop_geometry() %>%
+  group_by(dailyid) %>%
+  summarise(cluster_num = length(unique(cluster)), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(cluster_num), col = "white") + 
+  theme_bw()
+```
+
+研究范围内，每个月的人数。由于目前取样不均，只能大概看出游客可能是8月份、9月份、11月份较多。
+
+```{r}
+gis_agoop_coord_cluster %>%
+  st_drop_geometry() %>%
+  group_by(month, source) %>%
+  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+  ggplot() +
+  geom_col(aes(month, dailyid_num, fill = source)) + 
+  theme_bw()
+```
+
+每个地点在研究期间的总滞留人数。市区（地点76和地点75）滞留人数最多。
+
+```{r}
+gis_agoop_coord_cluster %>%
+  st_drop_geometry() %>%
+  group_by(cluster) %>%
+  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+  arrange(-dailyid_num) %>% 
+  head(15) %>% 
+  mutate(cluster = factor(cluster, levels = rev(cluster))) %>% 
+  ggplot() +
+  geom_col(aes(cluster, dailyid_num)) + 
+  coord_flip() + 
+  theme_bw()
+```
+
+## 网络分析
+
+基于每个用户都行动轨迹，可以提取轨迹序列中每个起点-终点对（即OD数据）。例如，如果一个人的轨迹是76-75-89，那么其OD对包括：76-75和75-89。基于每个用户的OD数据，可以进行网络分析。此处仅进行可视化。图中每个点就是谢于松定义的地点，位置对应地图上地点多边形的中心；线段则代表两个点之间的流动，线段越粗代表流量越大；线段方向为顺时针，颜色为起点颜色。从图中可以看出，从市区去向空港的最多，其次是从空港去向市区的，以及绿色的从南部去向市区的线段。对于每个网络，还可以计算哪些节点是中心节点，也可以计算网络参数以表明其连通程度。
+
+## ![](images/Screenshot 2024-10-22 at 22.05.28.png)其他
+
+以上所有的分析都可以加入以下维度：时间（如小时、月份）、性别、客源地。需要讨论后根据需求进行分析。
