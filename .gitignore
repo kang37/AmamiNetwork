@@ -6,7 +6,7 @@
 .DS_Store
 .RDataTmp
 data_raw/
-data_edited/
+data_proc/
 file/
 Icon
 _targets/
