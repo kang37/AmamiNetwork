@@ -774,3 +774,20 @@ seg %>%
   geom_col(aes(season, prop, fill = as.character(seg_n))) +
   facet_grid(gender ~ home_pref_grp, scales = "free_y")
 
+# File for Gephi ----
+node <- st_centroid(loc)
+node <- data.frame(Id = node$loc_id) %>%
+  cbind(
+    st_coordinates(node) %>%
+      data.frame() %>%
+      rename_with(~ c("Longitude", "Latitude"))
+  ) %>%
+  tibble()
+write.csv(node, "data_proc/new_od_node.csv", row.names = FALSE)
+
+seg_pair_od %>%
+  # Bug: Should ungroup earlier.
+  ungroup() %>%
+  select(origin, destination) %>%
+  rename_with(~ c("Source", "Target")) %>%
+  write.csv(., "data_proc/new_od_edge.csv", row.names = FALSE)
