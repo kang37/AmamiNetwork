@@ -1,4 +1,4 @@
-# Package ----
+# Preparation ----
 pacman::p_load(
   lubridate, dplyr, dbscan, sf, tmap, mapview, stringi,
   ggplot2, tidyr, RColorBrewer, targets
@@ -9,16 +9,21 @@ tar_load(gis_agoop_coord_cluster)
 tar_load(loc)
 tar_load(pref_city_code)
 
-# 漏洞：增加本地/外地区分。
+# 漏洞：增加本地/外地区分；增加季度信息。
 gis_agoop_coord_cluster <- gis_agoop_coord_cluster %>%
-  mutate(source = case_when(
-    home_citycode %in% c(
-      "46222", "46505", "46502", "46504", "46501", "46506", "46521",
-      "46522", "46523"
-    ) ~ "local",
-    TRUE ~ "tourist"
-  ))
-# 选择三个dailyid展示轨迹点。
+  mutate(
+    source = case_when(
+      home_citycode %in% c(
+        "46222", "46505", "46502", "46504", "46501", "46506", "46521",
+        "46522", "46523"
+      ) ~ "local",
+      TRUE ~ "tourist"
+    ),
+    qua = quarter(month)
+  )
+
+# General description ----
+# 选择三个轨迹点最多的dailyid展示轨迹点。
 example_dailyid <- gis_agoop_coord_cluster %>%
   st_drop_geometry() %>%
   # 每个人各个小时的记录数量。
@@ -34,7 +39,6 @@ gis_agoop_coord_cluster %>%
   st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
   mapview(zcol = "hour", col.region = colorRampPalette(c("red", "yellow", "blue")))
 
-# General description ----
 # 每个人每天有几个记录点？
 gis_agoop_coord_cluster %>%
   st_drop_geometry() %>%
@@ -60,19 +64,27 @@ gis_agoop_coord_cluster %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
   ggplot() +
   geom_col(aes(month, dailyid_num, fill = source))
-
-# 每个地点滞留多少人？
+# 每个季度有多少人？
 gis_agoop_coord_cluster %>%
   st_drop_geometry() %>%
-  group_by(cluster) %>%
+  group_by(qua, source) %>%
+  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+  ggplot() +
+  geom_col(aes(qua, dailyid_num, fill = source))
+
+# 每个地点滞留多少人？只取人数较多的地点。
+# 基本上都表现为第三季度人数最多。
+gis_agoop_coord_cluster %>%
+  st_drop_geometry() %>%
+  group_by(qua, cluster) %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
   arrange(-dailyid_num) %>%
-  head(15) %>%
-  mutate(cluster = factor(cluster, levels = rev(cluster))) %>%
+  head(100) %>%
+  mutate(cluster = as.character(cluster)) %>%
   ggplot() +
-  geom_col(aes(cluster, dailyid_num)) +
-  coord_flip() +
-  theme_bw()
+  geom_line(aes(qua, dailyid_num)) +
+  theme_bw() +
+  facet_wrap(.~ cluster, scales = "free_y")
 
 # Trajectory between clusters ----
 # Further divide segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
@@ -101,7 +113,7 @@ seg <- gis_agoop_coord_cluster %>%
   ungroup() %>%
   tidyr::fill(seg_id) %>%
   # Calculate duration of stay.
-  group_by(dailyid, cluster, seg_id) %>%
+  group_by(qua, dailyid, cluster, seg_id) %>%
   summarise(duration_stay = max(time) - min(time), .groups = "drop") %>%
   # Remove noise points.
   filter(cluster != 0) %>%
@@ -114,11 +126,14 @@ seg <- gis_agoop_coord_cluster %>%
   )
 
 # Plot duration of stay of each cluster for each visitor, based on segment duration stay data.
+# 漏洞：滞留时间和人数是否应该除以面积呢？
 ggplot(data = seg, aes(cluster, duration_stay)) +
   geom_boxplot() +
-  geom_jitter(alpha = 0.1) +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
   labs(x = "Cluster", y = "Duration of stay") +
   coord_flip()
+# 漏洞：看看面积和滞留时间的关系？
+
 # Table.
 seg %>%
   group_by(cluster) %>%
