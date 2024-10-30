@@ -197,9 +197,22 @@ list(
   tar_target(
     # Bug: Take sample for clustering.
     # 漏洞：取1/200-1/100样本，需要4-5分钟。
+    # 漏洞：要花3小时。
     gis_agoop_coord_cluster,
     gis_agoop_coord_filt %>%
       head(100000) %>%
+      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+      st_intersection(loc) %>%
+      # 漏洞：应早点重命名。
+      rename("cluster" = "loc_id")
+  ),
+  tar_target(
+    # Bug: Take sample for clustering.
+    # 漏洞：共984209行，取第二部分样本。
+    # 漏洞：要花2小时。
+    gis_agoop_coord_cluster_2,
+    gis_agoop_coord_filt %>%
+      .[c(100001:150000), ] %>%
       st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
       st_intersection(loc) %>%
       # 漏洞：应早点重命名。
