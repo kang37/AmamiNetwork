@@ -9,6 +9,10 @@ tar_load(gis_agoop_coord_cluster)
 tar_load(loc)
 tar_load(pref_city_code)
 
+# 漏洞：应该更早增加面积列。
+# 计算面积，单位为平方米。
+loc <- loc %>%
+  mutate(area = st_area(loc) %>% as.numeric())
 # 漏洞：增加本地/外地区分；增加季度信息。
 gis_agoop_coord_cluster <- gis_agoop_coord_cluster %>%
   mutate(
@@ -20,7 +24,9 @@ gis_agoop_coord_cluster <- gis_agoop_coord_cluster %>%
       TRUE ~ "tourist"
     ),
     qua = quarter(month)
-  )
+  ) %>%
+  # 漏洞：如果提前在loc中加入面积，这里就不用增加这行操作。
+  left_join(loc %>% st_drop_geometry(), by = c("cluster" = "loc_id"))
 
 # General description ----
 # 选择三个轨迹点最多的dailyid展示轨迹点。
@@ -110,31 +116,43 @@ seg <- gis_agoop_coord_cluster %>%
   st_drop_geometry() %>%
   arrange(dailyid, hour) %>%
   left_join(seg_id, by = c("dailyid", "cluster", "time")) %>%
-  ungroup() %>%
+  # 漏洞：需要去分组吗？
+  # ungroup() %>%
   tidyr::fill(seg_id) %>%
   # Calculate duration of stay.
-  group_by(qua, dailyid, cluster, seg_id) %>%
+  group_by(qua, dailyid, cluster, area, seg_id) %>%
   summarise(duration_stay = max(time) - min(time), .groups = "drop") %>%
-  # Remove noise points.
-  filter(cluster != 0) %>%
-  # Bug: Duration of stat = 0 also excluded, might introduce bias from signal lose, i.e., only one points is recorded in a cluster.
-  filter(duration_stay > 600) %>%
-  # Turn duration of stay from second to minute.
   mutate(
+    # 将滞留时间由秒钟转化成分钟。
     duration_stay = as.numeric(duration_stay) / 60,
-    cluster = as.character(cluster)
-  )
+    cluster = as.character(cluster),
+    dur_stay_per_area = duration_stay / area
+  ) %>%
+  # Bug: Duration of stat = 0 also excluded, might introduce bias from signal lose, i.e., only one points is recorded in a cluster.
+  # 只保留停留时间大于30分钟的。
+  filter(duration_stay > 30)
 
 # Plot duration of stay of each cluster for each visitor, based on segment duration stay data.
-# 漏洞：滞留时间和人数是否应该除以面积呢？
 ggplot(data = seg, aes(cluster, duration_stay)) +
   geom_boxplot() +
   geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
   labs(x = "Cluster", y = "Duration of stay") +
   coord_flip()
-# 漏洞：看看面积和滞留时间的关系？
+# 单位面积滞留时间。
+ggplot(data = seg, aes(cluster, dur_stay_per_area)) +
+  geom_boxplot() +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
+  labs(x = "Cluster", y = "Duration of stay") +
+  coord_flip()
+# 总滞留时间和单位面积滞留时间之间的关系？
+ggplot(data = seg) +
+  geom_point(aes(dur_stay_per_area, duration_stay), alpha = 0.5)
+# 换成对数。
+ggplot(data = seg) +
+  geom_point(aes(log(dur_stay_per_area), duration_stay), alpha = 0.5)
+# 漏洞：计算单位道路停留时间？
 
-# Table.
+# 分地点计算每个人每段路平均停留时长等。
 seg %>%
   group_by(cluster) %>%
   summarise(
@@ -146,12 +164,28 @@ seg %>%
   ) %>%
   select(cluster, mid_dur_stay, mean_dur_stay, sd_dur_stay, vc_dur_stay)
 
-# 平均来看，各个地点滞留时间是多久？
-# 漏洞：要计算每次滞留时间的平均，还是将每个人在同一个地点的滞留时间加起来呢？
+# 分地点计算。
+# 每个人各地点总停留时长？
 seg %>%
+  group_by(dailyid, cluster) %>%
+  # 单位：小时。
+  summarise(duration_stay = sum(duration_stay) / 60, .groups = "drop") %>%
+  ggplot() +
+  geom_point(aes(cluster, duration_stay), alpha = 0.5) +
+  coord_flip()
+
+seg %>%
+  group_by(dailyid, cluster) %>%
+  # 单位：小时。
+  summarise(duration_stay = sum(duration_stay) / 60, .groups = "drop") %>%
   group_by(cluster) %>%
-  summarise(duration_stay = mean(duration_stay), .groups = "drop") %>%
-  arrange(-duration_stay)
+  summarise(
+    mean_dur_stay = mean(duration_stay, na.rm = TRUE),
+    mid_dur_stay = median(duration_stay, na.rm = TRUE),
+    sd_dur_stay = sd(duration_stay, na.rm = TRUE),
+    vc_dur_stay = sd_dur_stay / mean_dur_stay,
+    n_dur_stay = n()
+  )
 
 # Most visitors stay in a cluster; segment visited is similar to cluster visited number.
 # 每个人访问了多少个cluster。
@@ -161,7 +195,7 @@ seg %>%
   group_by(dailyid) %>%
   summarise(seg_n = n(), .groups = "drop") %>%
   ggplot() +
-  geom_histogram(aes(seg_n), binwidth = 1)
+  geom_histogram(aes(seg_n), binwidth = 1, col = "white")
 
 # In each mode, what is the structure?
 # Bug: Take cluster 76 as an example.
