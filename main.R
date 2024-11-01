@@ -4,9 +4,9 @@ pacman::p_load(
   ggplot2, tidyr, RColorBrewer, targets
 )
 tar_make()
+tar_load(agoop_filt_1)
+tar_load(agoop_filt_3)
 tar_load(amami)
-tar_load(gis_agoop_coord_cluster)
-tar_load(gis_agoop_coord_cluster_2)
 tar_load(loc)
 tar_load(pref_city_code)
 
@@ -16,12 +16,16 @@ loc <- loc %>%
   mutate(area = st_area(loc) %>% as.numeric())
 # 漏洞：增加本地/外地区分；增加季度信息。
 gis_agoop_coord_cluster <-
-  rbind(gis_agoop_coord_cluster, gis_agoop_coord_cluster_2) %>%
+  rbind(agoop_filt_1, agoop_filt_3) %>%
   mutate(
     source = case_when(
       home_citycode %in% c(
-        "46222", "46505", "46502", "46504", "46501", "46506", "46521",
-        "46522", "46523"
+        pref_city_code %>%
+          filter(cityname %in% c(
+            "奄美市", "大和村", "宇検村", "瀬戸内町", "龍郷町", "喜界町",
+            "徳之島町", "天城町", "伊仙町", "和泊町", "知名町", "与論町"
+          )) %>%
+          pull(citycode)
       ) ~ "local",
       TRUE ~ "tourist"
     ),
@@ -29,6 +33,7 @@ gis_agoop_coord_cluster <-
   ) %>%
   # 漏洞：如果提前在loc中加入面积，这里就不用增加这行操作。
   left_join(loc %>% st_drop_geometry(), by = c("cluster" = "loc_id"))
+table(gis_agoop_coord_cluster$source)
 
 # General description ----
 # 选择三个轨迹点最多的dailyid展示轨迹点。
@@ -71,7 +76,8 @@ gis_agoop_coord_cluster %>%
   group_by(month, source) %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
   ggplot() +
-  geom_col(aes(month, dailyid_num, fill = source))
+  geom_col(aes(month, dailyid_num, fill = source)) +
+  facet_wrap(.~ source, scales = "free")
 # 每个季度有多少人？
 gis_agoop_coord_cluster %>%
   st_drop_geometry() %>%
