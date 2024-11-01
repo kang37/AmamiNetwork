@@ -6,6 +6,7 @@ pacman::p_load(
 tar_make()
 tar_load(amami)
 tar_load(gis_agoop_coord_cluster)
+tar_load(gis_agoop_coord_cluster_2)
 tar_load(loc)
 tar_load(pref_city_code)
 
@@ -14,7 +15,8 @@ tar_load(pref_city_code)
 loc <- loc %>%
   mutate(area = st_area(loc) %>% as.numeric())
 # 漏洞：增加本地/外地区分；增加季度信息。
-gis_agoop_coord_cluster <- gis_agoop_coord_cluster %>%
+gis_agoop_coord_cluster <-
+  rbind(gis_agoop_coord_cluster, gis_agoop_coord_cluster_2) %>%
   mutate(
     source = case_when(
       home_citycode %in% c(
