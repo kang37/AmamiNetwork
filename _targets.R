@@ -217,6 +217,69 @@ list(
       st_intersection(loc) %>%
       # 漏洞：应早点重命名。
       rename("cluster" = "loc_id")
+  ),
+  # 根据时间进行重采样，每个人每10分钟仅保留时间最早的一个数据点。
+  tar_target(
+    gis_agoop_coord_time,
+    gis_agoop_coord_filt %>%
+      mutate(minute_step = substr(sprintf("%02i", minute), 1, 1)) %>%
+      arrange(dailyid, time) %>%
+      group_by(dailyid, hour, minute_step) %>%
+      mutate(minute_step_filt = row_number()) %>%
+      ungroup() %>%
+      filter(minute_step_filt == 1) %>%
+      select(-minute_step_filt) %>%
+      # 漏洞：可能可以早点删除？
+      group_by(dailyid) %>%
+      mutate(n_hour = length(unique(hour))) %>%
+      ungroup() %>%
+      filter(n_hour > 10) %>%
+      select(-n_hour)
+  ),
+  tar_target(
+    # Bug: Take sample for clustering.
+    # 漏洞：共429196行。
+    # 漏洞：要花7.2小时。
+    agoop_filt_1,
+    gis_agoop_coord_time %>%
+      head(100000) %>%
+      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+      st_intersection(loc) %>%
+      # 漏洞：应早点重命名。
+      rename("cluster" = "loc_id")
+  ),
+  # tar_target(
+  #   # Bug: Take sample for clustering.
+  #   # 漏洞：共429196行。
+  #   # 漏洞：要花小时。
+  #   agoop_filt_2,
+  #   gis_agoop_coord_time[c(100001:200000), ] %>%
+  #     st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+  #     st_intersection(loc) %>%
+  #     # 漏洞：应早点重命名。
+  #     rename("cluster" = "loc_id")
+  # ),
+  tar_target(
+    # Bug: Take sample for clustering.
+    # 漏洞：共429196行。
+    # 漏洞：要花4小时。
+    agoop_filt_3,
+    gis_agoop_coord_time[c(200001:300000), ] %>%
+      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+      st_intersection(loc) %>%
+      # 漏洞：应早点重命名。
+      rename("cluster" = "loc_id")
+  ),
+  tar_target(
+    # Bug: Take sample for clustering.
+    # 漏洞：共429196行。
+    # 漏洞：要花小时。
+    agoop_filt_4,
+    gis_agoop_coord_time[c(300001:429196), ] %>%
+      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
+      st_intersection(loc) %>%
+      # 漏洞：应早点重命名。
+      rename("cluster" = "loc_id")
   )
 )
 
