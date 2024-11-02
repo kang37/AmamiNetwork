@@ -1,8 +1,10 @@
 # Preparation ----
 pacman::p_load(
-  lubridate, dplyr, dbscan, sf, tmap, mapview, stringi,
+  lubridate, dplyr, dbscan, sf, tmap, mapview, stringi, showtext,
   ggplot2, tidyr, RColorBrewer, targets
 )
+showtext_auto()
+
 tar_make()
 tar_load(agoop_filt_1)
 tar_load(agoop_filt_3)
@@ -131,21 +133,24 @@ seg <- gis_agoop_coord_cluster %>%
 # Plot duration of stay of each cluster for each visitor, based on segment duration stay data.
 ggplot(data = seg, aes(cluster, duration_stay)) +
   geom_boxplot() +
-  geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.2) +
   labs(x = "Cluster", y = "Duration of stay") +
   coord_flip()
 # 单位面积滞留时间。
 ggplot(data = seg, aes(cluster, dur_stay_per_area)) +
   geom_boxplot() +
   geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
-  labs(x = "Cluster", y = "Duration of stay") +
-  coord_flip()
-# 总滞留时间和单位面积滞留时间之间的关系？
+  labs(x = "Cluster", y = "单位面积滞留时间（分/平米）") +
+  coord_flip() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  lims(y = c(0, 2))
+# 总滞留时间和面积之间的关系？
 ggplot(data = seg) +
-  geom_point(aes(dur_stay_per_area, duration_stay), alpha = 0.5)
+  geom_point(aes(area, duration_stay), alpha = 0.5)
 # 换成对数。
 ggplot(data = seg) +
-  geom_point(aes(log(dur_stay_per_area), duration_stay), alpha = 0.5)
+  geom_point(aes(log(area), duration_stay), alpha = 0.5)
 # 漏洞：计算单位道路停留时间？
 
 # 分地点计算每个人每段路平均停留时长等。
@@ -185,13 +190,14 @@ seg %>%
 
 # Most visitors stay in a cluster; segment visited is similar to cluster visited number.
 # 每个人访问了多少个cluster。
-seg %>%
+# 漏洞：seg_id和seg做出来的图不同。
+seg_id %>%
   select(dailyid, cluster) %>%
   distinct() %>%
   group_by(dailyid) %>%
-  summarise(seg_n = n(), .groups = "drop") %>%
+  summarise(cluster_n = n(), .groups = "drop") %>%
   ggplot() +
-  geom_histogram(aes(seg_n), binwidth = 1, col = "white")
+  geom_histogram(aes(cluster_n), binwidth = 1, col = "white")
 
 # In each mode, what is the structure?
 # Bug: Take cluster 76 as an example.
@@ -893,7 +899,6 @@ lapply(
 # 如果不算经过的人，只算当天从中心节点出发的人。
 # 每个人一天中的出发点只有一个。符合条件的分析对象：从中心节点出发。
 # 漏洞：从某个地点出发后，下一步马上去往哪里？还是几次经停都算呢？如果不考虑其后经停，只考虑出发之后的下一步的话，只取第一个节点和第二个节点即可。
-center_node
 tar_dailyid <- seg_id %>%
   filter(seg_id == 1, cluster %in% center_node) %>%
   pull(dailyid) %>%

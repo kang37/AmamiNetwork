@@ -1,0 +1,177 @@
+---
+title: "Amami transportation net study"
+author: "Kang"
+format: html
+editor: visual
+execute: 
+  echo: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| echo: false
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## 数据构建
+
+原始数据为2018年间到达奄美群岛的所有手机用户每天的轨迹。数据形式类似于：用户1在时刻1的位置，时刻2的数据，时刻3的数据；用户2在时刻1的数据，时刻2的数据，等等。有些人轨迹比较多，有些人被收集到的轨迹比较少。从原始数据中去除轨迹点特别少的用户，因为如果轨迹点太少，我们无法分析其每天的移动轨迹。注意这里的"用户"是指一天内的一位独立用户，例如，有个人两天都待在奄美群岛上，则会被识别为两个用户号（在数据中被称为"DailyID"）。另外，由于主要活动时间段为上午4时到晚上10时，因此这些时间段之外的轨迹点也去除。由于数据太大，我进行了重采样，并且先取了一半数据来做分析，这部分筛选后的数据包含约3500个DailyID的15万个轨迹点。
+
+根据上一次的讨论，对数据进行分季节描述性分析和分季节网络分析。
+
+## 描述分析
+
+### 地段滞留时间
+
+首先是分地点看每人每地段的停留时间。这里首先要明确几个概念：\"地点\"是指谢定义的地点多边形；\"地段\"是指一个DailyID持续在一个地点的经历。例如，一个人一天的路线是：L76-L75-路上-L95-路上-L76-路上-L76（\"L数字\"表示地点，所有不归入被定义地点的空间统称为\"路上\"）。那么，这个人的地段停留时间就是在每段地点的停留时间。比如，最后他/她到达了L76，然后又出去了一下，之后有回到了L76，那么这里他/她就有两个L76地点的停留时间。由于地点太多，所以其实看不太清楚相互之间的差异，后面可以考虑对地点进行分类，或者是挑出部分重点地点来查看；此外，我后面还会给出每个地点的平均值等计算结果。
+
+```{r fig.height=20}
+ggplot(data = seg, aes(cluster, duration_stay)) +
+  geom_boxplot() +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.2) +
+  labs(x = "Cluster", y = "Duration of stay") +
+  coord_flip() +
+  theme_bw()
+```
+
+因为滞留时间可能天然地和面积有关，因此这里再给一个单位面积滞留时间。
+
+```{r fig.height=20}
+ggplot(data = seg, aes(cluster, dur_stay_per_area)) +
+  geom_boxplot() +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
+  labs(x = "Cluster", y = "单位面积滞留时间（分/平米）") +
+  coord_flip() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) 
+```
+
+可见大部分地点停留时间都是少于0.1分钟/平米的，因此咱们把它继续放大了看看。放大之后可以看出，单位面积滞留时间比总滞留时间差异小了很多。
+
+```{r fig.height=20}
+ggplot(data = seg, aes(cluster, dur_stay_per_area)) +
+  geom_boxplot() +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
+  labs(x = "Cluster", y = "单位面积滞留时间（分/平米）") +
+  coord_flip() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  lims(y = c(0, 0.1))
+```
+
+那么地段滞留时间跟面积有没有正相关呢。先对它们作图。
+
+```{r}
+ggplot(data = seg) +
+  geom_point(aes(dur_stay_per_area, area), alpha = 0.5)
+```
+
+数值差异比较大，因此换成对数。这样看来地段滞留时间和面积应该是有正向的相关性的；或者，面积越大其滞留时间上限可能就越大。
+
+```{r}
+ggplot(data = seg) +
+  geom_point(aes(log(area), duration_stay), alpha = 0.5)
+```
+
+地段滞留时间的平均值、中位数等计算结果见\"地段滞留时间.xlsx\"。
+
+### 地点滞留时间
+
+一个人在一个地点的总停留时长则是将其轨迹中相同地点的地段滞留时间加起来。例如刚才的例子中，那个人的轨迹是：L76-L75-路上-L95-路上-L76-路上-L76，那么其L76地点的总滞留时间就是将3个L76地段滞留时间加起来。下图展示各个地点视角下，每个人的地点总滞留时间。
+
+```{r fig.height=20}
+seg %>%
+  group_by(dailyid, cluster) %>%
+  # 单位：小时。
+  summarise(duration_stay = sum(duration_stay) / 60, .groups = "drop") %>%
+  ggplot() +
+  geom_point(aes(cluster, duration_stay), alpha = 0.5) +
+  coord_flip()
+```
+
+同样，计算了地点滞留时间的平均值、中位数等，见\"地点滞留时间.xlsx\"，单位为小时。
+
+### 滞留地点
+
+每个人每天滞留的地点数量。可见待在一个地方的人最多，但是和之前的研究不同，一天内只待在一个地点的人并没有远远超过其他组。此外，大部分人每天滞留的地点不超过10个。
+
+```{r}
+seg_id %>%
+  select(dailyid, cluster) %>%
+  distinct() %>%
+  group_by(dailyid) %>%
+  summarise(cluster_n = n(), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(cluster_n), binwidth = 1, col = "white")
+```
+
+如果分季节来看的话。
+
+```{r}
+seg_id %>%
+  mutate(month = month(time), qua = quarter(month)) %>% 
+  select(qua, dailyid, cluster) %>%
+  distinct() %>%
+  group_by(qua, dailyid) %>%
+  summarise(cluster_n = n(), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(cluster_n), binwidth = 1, col = "white") + 
+  facet_wrap(.~ qua)
+```
+
+## 网络分析
+
+基于每个用户都行动轨迹，可以提取轨迹序列中每个起点-终点对（即OD数据）。例如，如果一个人的轨迹是L76-L75-L89，那么其OD对包括：L76-L75和L75-L89。基于每个用户的OD数据，可以进行网络分析。
+
+下面4个图表示四个季度的移动网络。图中每个点就是谢定义的地点，位置对应地图上地点多边形的中心；线段则代表两个点之间的流动，线段越粗代表流量越大；线段方向为顺时针，颜色为起点颜色。
+
+![](images/3.png)![](images/4.png)![](images/2.png)![](images/1.png)
+
+对于每个网络，还可以计算哪些节点是中心节点，也可以计算网络参数以表明其连通程度。我计算了4个季度网络的以下一些参数：
+
+-   平均节点中心度-表示网络中平均每个节点的连接数：7.568，8.172，9.177，10.566；
+
+-   网络直径（Network Diameter）是网络中任意两个节点之间最短路径的最大值：5，7，6，6；
+
+-   网络图密度：0.041，0.034，0.031，0.038；
+
+-   聚类系数（clustering coefficient）：0.336，0.347，0.404，0.392。
+
+此外，根据上次讨论，将中心度比较高（出链接或入链接比较多）的地点挑出来，看看从这些地方出发的人下一步到什么地方去。
+
+如果看所有经过这些中心节点地点的人的话，可见大部分人的下一步目的地仍然是中心节点。
+
+```{r}
+lapply(
+  1:4,
+  function(x) {
+    # 选取前10个节点作为重要节点。
+    center_node <- table(c(edge_export[[x]]$destination, edge_export[[1]]$origin)) %>%
+      sort(decreasing = T) %>%
+      names() %>%
+      head(10)
+    # 前10个节点的去向。
+    to_top <- edge_export[[x]] %>%
+      filter(origin %in% center_node) %>%
+      mutate(destination = case_when(
+        destination %in% center_node ~ "center node",
+        TRUE ~ "other"
+      )) %>%
+      group_by(origin, destination) %>%
+      summarise(n = n(), .groups = "drop")
+    return(to_top)
+  }
+) %>%
+  lapply(
+    function(x) {
+      x %>%
+        ggplot() +
+        geom_col(aes(origin, n, fill = destination))
+    }
+  )
+```
+
+相关结果我也输出到了表格，见\"中心节点经停者下一步目的地.xlsx\"。
+
+如果不考虑所有经过的人，而只考虑一天中从中心节点出发的人第二个目的地去哪里的话，见\"中心节点出发者下一步目的地.xlsx\"。
