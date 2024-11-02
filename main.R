@@ -18,17 +18,7 @@ loc <- loc %>%
 gis_agoop_coord_cluster <-
   rbind(agoop_filt_1, agoop_filt_3) %>%
   mutate(
-    source = case_when(
-      home_citycode %in% c(
-        pref_city_code %>%
-          filter(cityname %in% c(
-            "奄美市", "大和村", "宇検村", "瀬戸内町", "龍郷町", "喜界町",
-            "徳之島町", "天城町", "伊仙町", "和泊町", "知名町", "与論町"
-          )) %>%
-          pull(citycode)
-      ) ~ "local",
-      TRUE ~ "tourist"
-    ),
+    source = case_when(home_prefcode == 46 ~ "local", TRUE ~ "tourist"),
     qua = quarter(month)
   ) %>%
   # 漏洞：如果提前在loc中加入面积，这里就不用增加这行操作。
@@ -84,7 +74,8 @@ gis_agoop_coord_cluster %>%
   group_by(qua, source) %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
   ggplot() +
-  geom_col(aes(qua, dailyid_num, fill = source))
+  geom_col(aes(qua, dailyid_num, fill = source)) +
+  facet_wrap(.~ source, scales = "free")
 
 # 每个地点滞留多少人？只取人数较多的地点。
 # 基本上都表现为第三季度人数最多。
@@ -135,10 +126,7 @@ seg <- gis_agoop_coord_cluster %>%
     duration_stay = as.numeric(duration_stay) / 60,
     cluster = as.character(cluster),
     dur_stay_per_area = duration_stay / area
-  ) %>%
-  # Bug: Duration of stat = 0 also excluded, might introduce bias from signal lose, i.e., only one points is recorded in a cluster.
-  # 只保留停留时间大于30分钟的。
-  filter(duration_stay > 30)
+  )
 
 # Plot duration of stay of each cluster for each visitor, based on segment duration stay data.
 ggplot(data = seg, aes(cluster, duration_stay)) +
@@ -238,7 +226,8 @@ seg_pair_od <- seg %>%
   mutate(
     destination = cluster, origin = lag(cluster)
   ) %>%
-  filter(!is.na(origin))
+  filter(!is.na(origin)) %>%
+  ungroup()
 
 # Most movements are from c2 to c2, followed by c1-c2, c1-c1, c2-c8, c10-c10. c2 is an important center.
 seg_pair_od %>%
@@ -842,9 +831,30 @@ node <- data.frame(Id = node$loc_id) %>%
   tibble()
 write.csv(node, "data_proc/new_od_node.csv", row.names = FALSE)
 
-seg_pair_od %>%
-  # Bug: Should ungroup earlier.
-  ungroup() %>%
-  select(origin, destination) %>%
-  rename_with(~ c("Source", "Target")) %>%
-  write.csv(., "data_proc/new_od_edge.csv", row.names = FALSE)
+library(purrr)
+edge_export <- split.data.frame(seg_pair_od, seg_pair_od$qua)
+map2(
+  edge_export,
+  1:4,
+  function(x, y) {
+    select(x, origin, destination) %>%
+      rename_with(~ c("Source", "Target")) %>%
+      write.csv(
+        ., paste0("data_proc/new_od_edge_", y, ".csv"), row.names = FALSE
+      )
+  }
+)
+
+# 导出节点。
+map2(
+  edge_export,
+  1:4,
+  function(x, y) {
+    node %>%
+      filter(Id %in% unique(c(x$origin, x$destination))) %>%
+      write.csv(
+        ., paste0("data_proc/od_node_", y, ".csv"), row.names = FALSE
+      )
+  }
+)
+
