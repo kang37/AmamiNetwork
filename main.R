@@ -858,3 +858,34 @@ map2(
   }
 )
 
+# From center node ----
+# 对于重要节点，计算其出链接的目的地。
+# 如果算上所有经过的人。
+lapply(
+  1:4,
+  function(x) {
+    # 选取前10个节点作为重要节点。
+    center_node <- table(c(edge_export[[x]]$destination, edge_export[[1]]$origin)) %>%
+      sort(decreasing = T) %>%
+      names() %>%
+      head(10)
+    # 前10个节点的去向。
+    to_top <- edge_export[[x]] %>%
+      filter(origin %in% center_node) %>%
+      mutate(destination = case_when(
+        destination %in% center_node ~ "center node",
+        TRUE ~ "other"
+      )) %>%
+      group_by(origin, destination) %>%
+      summarise(n = n(), .groups = "drop")
+    return(to_top)
+  }
+) %>%
+  lapply(
+    function(x) {
+      x %>%
+        ggplot() +
+        geom_col(aes(origin, n, fill = destination))
+    }
+  )
+# 中心节点出发的，大部分都是去其他中心节点，但是市中心的地点76除外（所有季节），而95和89也不一定去中心节点。
