@@ -889,3 +889,21 @@ lapply(
     }
   )
 # 中心节点出发的，大部分都是去其他中心节点，但是市中心的地点76除外（所有季节），而95和89也不一定去中心节点。
+
+# 如果不算经过的人，只算当天从中心节点出发的人。
+# 每个人一天中的出发点只有一个。符合条件的分析对象：从中心节点出发。
+# 漏洞：从某个地点出发后，下一步马上去往哪里？还是几次经停都算呢？如果不考虑其后经停，只考虑出发之后的下一步的话，只取第一个节点和第二个节点即可。
+center_node
+tar_dailyid <- seg_id %>%
+  filter(seg_id == 1, cluster %in% center_node) %>%
+  pull(dailyid) %>%
+  unique()
+seg_id %>%
+  filter(dailyid %in% tar_dailyid, seg_id == 1 | seg_id == 2) %>%
+  mutate(month = month(time), qua = quarter(month)) %>%
+  select(-time, -new_cluster, -new_dailyid) %>%
+  pivot_wider(names_from = seg_id, values_from = cluster) %>%
+  rename("origin" = "1", "destination" = "2") %>%
+  group_by(qua, origin, destination) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(!is.na(destination))
