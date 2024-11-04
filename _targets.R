@@ -1,20 +1,14 @@
 library(targets)
-# This is an example _targets.R file. Every
-# {targets} pipeline needs one.
-# Use tar_script() to create _targets.R and tar_edit()
-# to open it again for editing.
-# Then, run tar_make() to run the pipeline
-# and tar_read(summary) to view the results.
-
-# Define custom functions and other global objects.
 
 # Set target-specific options such as packages.
 tar_option_set(packages = c(
   "jmastats", "lubridate", "openxlsx", "stringr", "dplyr", "tidyr", "ggplot2",
   "geojsonsf", "sf", "tmap", "parallel", "showtext", "patchwork", "jpmesh",
-  "mapview", "data.table"
+  "mapview", "data.table", "purrr"
 ))
 
+# Ensure sample to be consistent.
+set.seed(1234)
 # End this file with a list of target objects.
 list(
   # Constant ----
@@ -194,30 +188,6 @@ list(
       st_set_crs(4326) %>%
       select(loc_id = OBJECTID)
   ),
-  tar_target(
-    # Bug: Take sample for clustering.
-    # 漏洞：取1/200-1/100样本，需要4-5分钟。
-    # 漏洞：要花3小时。
-    gis_agoop_coord_cluster,
-    gis_agoop_coord_filt %>%
-      head(100000) %>%
-      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-      st_intersection(loc) %>%
-      # 漏洞：应早点重命名。
-      rename("cluster" = "loc_id")
-  ),
-  tar_target(
-    # Bug: Take sample for clustering.
-    # 漏洞：共984209行，取第二部分样本。
-    # 漏洞：要花2小时。
-    gis_agoop_coord_cluster_2,
-    gis_agoop_coord_filt %>%
-      .[c(100001:150000), ] %>%
-      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-      st_intersection(loc) %>%
-      # 漏洞：应早点重命名。
-      rename("cluster" = "loc_id")
-  ),
   # 根据时间进行重采样，每个人每10分钟仅保留时间最早的一个数据点。
   tar_target(
     gis_agoop_coord_time,
@@ -248,17 +218,6 @@ list(
       # 漏洞：应早点重命名。
       rename("cluster" = "loc_id")
   ),
-  # tar_target(
-  #   # Bug: Take sample for clustering.
-  #   # 漏洞：共429196行。
-  #   # 漏洞：要花小时。
-  #   agoop_filt_2,
-  #   gis_agoop_coord_time[c(100001:200000), ] %>%
-  #     st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-  #     st_intersection(loc) %>%
-  #     # 漏洞：应早点重命名。
-  #     rename("cluster" = "loc_id")
-  # ),
   tar_target(
     # Bug: Take sample for clustering.
     # 漏洞：共429196行。
@@ -270,16 +229,49 @@ list(
       # 漏洞：应早点重命名。
       rename("cluster" = "loc_id")
   ),
+  # Re-sampling.
+  # 根据每个月的人数进行采样，首先确定每个月的人数。
+  # 每个月取多少DailyID进行分析。
   tar_target(
-    # Bug: Take sample for clustering.
-    # 漏洞：共429196行。
-    # 漏洞：要花小时。
-    agoop_filt_4,
-    gis_agoop_coord_time[c(300001:429196), ] %>%
+    smp_num_dailyid,
+    gis_agoop_coord_time %>%
+      select(month, dailyid) %>%
+      distinct() %>%
+      group_by(month) %>%
+      summarise(n_dailyid = n(), .groups = "drop") %>%
+      mutate(smp_dailyid = round(n_dailyid / sum(n_dailyid) * 1000))
+  ),
+  # 随机取所需数量的DailyID。
+  tar_target(
+    smp_dailyid,
+    map2(
+      smp_num_dailyid$month,
+      smp_num_dailyid$smp_dailyid,
+      function(x, y) {
+        gis_agoop_coord_time %>%
+          select(month, dailyid) %>%
+          distinct() %>%
+          filter(month == x) %>%
+          slice_sample(n = y)
+      }
+    ) %>%
+      bind_rows() %>%
+      mutate(smp = TRUE)
+  ),
+  # 从原始数据中取样。
+  tar_target(
+    agoop_smp,
+    gis_agoop_coord_time %>%
+      left_join(smp_dailyid, by = c("month", "dailyid")) %>%
+      filter(smp)
+  ),
+  tar_target(
+    # 漏洞：要花1小时。
+    agoop_filt,
+    agoop_smp %>%
       st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
       st_intersection(loc) %>%
       # 漏洞：应早点重命名。
       rename("cluster" = "loc_id")
   )
 )
-
