@@ -206,29 +206,6 @@ list(
       filter(n_hour > 10) %>%
       select(-n_hour)
   ),
-  tar_target(
-    # Bug: Take sample for clustering.
-    # 漏洞：共429196行。
-    # 漏洞：要花7.2小时。
-    agoop_filt_1,
-    gis_agoop_coord_time %>%
-      head(100000) %>%
-      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-      st_intersection(loc) %>%
-      # 漏洞：应早点重命名。
-      rename("cluster" = "loc_id")
-  ),
-  tar_target(
-    # Bug: Take sample for clustering.
-    # 漏洞：共429196行。
-    # 漏洞：要花4小时。
-    agoop_filt_3,
-    gis_agoop_coord_time[c(200001:300000), ] %>%
-      st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-      st_intersection(loc) %>%
-      # 漏洞：应早点重命名。
-      rename("cluster" = "loc_id")
-  ),
   # Re-sampling.
   # 根据每个月的人数进行采样，首先确定每个月的人数。
   # 每个月取多少DailyID进行分析。
