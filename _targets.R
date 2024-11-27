@@ -63,32 +63,6 @@ list(
       # Add projection.
       st_set_crs(my_crs)
   ),
-  # Holiday ----
-  tar_target(
-    holiday,
-    read.csv("data_raw/Japan_holiday_2018.csv") %>%
-      mutate(
-        year = 2018, month = substr(.$月日, 1, 2), day  = substr(.$月日, 4, 5)
-      ) %>%
-      rename(holiday_name = 名称) %>%
-      mutate(date = as.Date(paste(year, month, day, sep = "-"))) %>%
-      select(date, holiday_name)
-  ),
-  # Weather ----
-  # tar_target(
-  #   # Block: 名瀬 in Amami island.
-  #   weather,
-  #   lapply(1:12, function(x) {
-  #     jma_collect(item = "daily", block_no = 47909, year = 2018, month = x)
-  #   }) %>%
-  #     do.call(rbind, .) %>%
-  #     unnest(cols = c(
-  #       pressure, precipitation, temperature, humidity, wind, sunshine,
-  #       snow, weather_time
-  #     )) %>%
-  #     rename_with(~ gsub(")", "", .x)) %>%
-  #     rename_with(~ gsub("\\(", "_", .x))
-  # ),
   # GIS layer ----
   # Amami boundary
   tar_target(
