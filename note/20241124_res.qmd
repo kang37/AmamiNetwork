@@ -1,0 +1,267 @@
+---
+title: "Amami transportation study"
+author: "Kang"
+format: html
+editor: visual
+execute: 
+  echo: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| echo: false
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## 数据构建
+
+原始数据为2018年间到达奄美群岛的所有手机用户每天的轨迹。原始数据为来自[Agoop公司的人口流动点数据](https://agoop.co.jp/service/dynamic-population-data/)，是每个用户在一天中不同时刻的位置信息。有些人轨迹比较多，有些人被收集到的轨迹比较少，所以需要对数据进行清理。数据清理过程主要包括：从原始数据中去除轨迹点特别少的用户，因为如果轨迹点太少，我们无法分析其每天的移动轨迹；由于主要活动时间段为上午4时到晚上10时，因此这些时间段之外的轨迹点也去除；对于每个用户，只保留每10分钟内最早的一个数据点，使每个用户的数据密度相对一致。
+
+对于数据，需要注意的是，这里的"用户"是指一天内的一位独立用户，例如，有个人两天都待在奄美群岛上，则会被识别为两个用户号（在数据中被称为"DailyID"）。
+
+## 描述分析
+
+### 原始数据分布
+
+按照季度和客源，可视化数据点的分布。因为奄美大岛的聚落相对集中，所以并无一眼就可以看出来的季节差异------但是稍微观察一下季节差异还是明显的。相比于季节差异，本地人和游客之间的差异比较明显。如果觉得这个图可以的话，可以考虑是否要用到论文中，以及如果要用，跟我说一下要如何调整。
+
+```{r}
+tm_shape(amami) + 
+  tm_polygons() + 
+  tm_shape(gis_agoop_coord_cluster) + 
+  tm_dots(alpha = 0.1, col = "red") + 
+  tm_facets(by = "qua", along = "source")
+```
+
+### 地点单段滞留时间
+
+首先是分地点看每人每地段的停留时间。例如，一个人一天的路线是：L76-L75-路上-L95-路上-L76-路上-L76（"L数字"表示地点，所有不归入被定义地点的空间统称为"路上"）。那么，这个人的地点停留时间就是在每段地点的停留时间。比如，最后他/她到达了L76，然后又出去了一下，之后有回到了L76，那么这里他/她就有两个L76地点的停留时间。由于地点太多，所以其实看不太清楚相互之间的差异，因此，我后面给出了每个地点的平均值等计算结果。此外，我还将平均值等计算结果可视化到了地图上。
+
+```{r fig.height=20}
+ggplot(data = seg, aes(cluster, duration_stay)) +
+  geom_boxplot() +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.2) +
+  labs(x = "Cluster", y = "Duration of stay") +
+  coord_flip() +
+  theme_bw()
+```
+
+计算每个地点的滞留时间平均值和中位数。
+
+```{r}
+seg_dur_stay_smry <- left_join(
+  loc %>% 
+    # Bug: Need to turn cluster ID into character
+    mutate(loc_id = as.character(loc_id)), 
+  seg %>% 
+  group_by(cluster) %>% 
+  summarise(
+    duration_stay_mean = mean(duration_stay), 
+    duration_stay_mid = median(duration_stay), 
+    .groups = "drop"
+  ) %>% 
+  arrange(duration_stay_mean), 
+  by = c("loc_id" = "cluster")
+)
+```
+
+将平均值可视化在地图上。
+
+```{r}
+tm_shape(amami) + 
+  tm_polygons(col = "white") + 
+  tm_shape(seg_dur_stay_smry) + 
+  tm_fill("duration_stay_mean")
+```
+
+这样看起来不太明显，因此取每个多边形的质心，用大小来表示滞留时间。
+
+```{r}
+tm_shape(amami) + 
+  tm_polygons(col = "white") + 
+  tm_shape(seg_dur_stay_smry) + 
+  tm_dots(size = "duration_stay_mean", alpha = 0.5)
+```
+
+类似地，看看滞留时间中位数。可见中位数的差异更大。应该用中位数还是平均值，需要等我做分布检验后确定。
+
+```{r}
+tm_shape(amami) + 
+  tm_polygons(col = "white") + 
+  tm_shape(seg_dur_stay_smry) + 
+  tm_dots(size = "duration_stay_mid", alpha = 0.5)
+```
+
+因为滞留时间可能天然地和面积有关，因此这里再给一个单位面积滞留时间。
+
+```{r fig.height=20}
+ggplot(data = seg, aes(cluster, dur_stay_per_area)) +
+  geom_boxplot() +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
+  labs(x = "Cluster", y = "单位面积滞留时间（分/平米）") +
+  coord_flip() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) 
+```
+
+可见大部分地点停留时间都是少于0.1分钟/平米的，因此咱们把它继续放大了看看。放大之后可以看出，单位面积滞留时间比总滞留时间差异小了很多。
+
+```{r fig.height=20}
+ggplot(data = seg, aes(cluster, dur_stay_per_area)) +
+  geom_boxplot() +
+  geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
+  labs(x = "Cluster", y = "单位面积滞留时间（分/平米）") +
+  coord_flip() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  lims(y = c(0, 0.1))
+```
+
+类似地，计算单位面积滞留时间的平均值和中位数。
+
+```{r}
+seg_pa_dur_stay_smry <- left_join(
+  loc %>% 
+    # Bug: Need to turn cluster ID into character
+    mutate(loc_id = as.character(loc_id)), 
+  seg %>% 
+  group_by(cluster) %>% 
+  summarise(
+    pa_duration_stay_mean = mean(dur_stay_per_area), 
+    pa_duration_stay_mid = median(dur_stay_per_area), 
+    .groups = "drop"
+  ), 
+  by = c("loc_id" = "cluster")
+)
+```
+
+可视化单位面积滞留时间的平均值。
+
+```{r}
+tm_shape(amami) + 
+  tm_polygons(col = "white") + 
+  tm_shape(seg_pa_dur_stay_smry) + 
+  tm_dots(size = "pa_duration_stay_mean", alpha = 0.5)
+```
+
+可视化单位面积滞留时间的中位数。
+
+```{r}
+tm_shape(amami) + 
+  tm_polygons(col = "white") + 
+  tm_shape(seg_pa_dur_stay_smry) + 
+  tm_dots(size = "pa_duration_stay_mid", alpha = 0.5)
+```
+
+那么地段单位面积滞留时间跟面积有没有正相关呢。先对它们作图。
+
+```{r}
+ggplot(data = seg) +
+  geom_point(aes(dur_stay_per_area, area), alpha = 0.5)
+```
+
+数值差异比较大，因此换成对数。这样看来地段滞留时间和面积应该是有正向的相关性的；或者，面积越大其滞留时间上限可能就越大。
+
+```{r}
+ggplot(data = seg) +
+  geom_point(aes(log(area), duration_stay), alpha = 0.5)
+```
+
+### 地点总滞留时间
+
+一个人在一个地点的总停留时长则是将其轨迹中相同地点的地段滞留时间加起来。例如刚才的例子中，那个人的轨迹是：L76-L75-路上-L95-路上-L76-路上-L76，那么其L76地点的总滞留时间就是将3个L76地段滞留时间加起来。下图展示各个地点视角下，每个人的地点总滞留时间。
+
+```{r fig.height=20}
+seg %>%
+  group_by(dailyid, cluster) %>%
+  # 单位：小时。
+  summarise(duration_stay = sum(duration_stay) / 60, .groups = "drop") %>%
+  ggplot() +
+  geom_point(aes(cluster, duration_stay), alpha = 0.5) +
+  coord_flip()
+```
+
+### 滞留地点
+
+每个人每天滞留的地点数量。可见待在1-3个地方的人最多，但是和之前的研究不同，一天内只待在1-3个地点的人并没有远远超过其他组。此外，大部分人每天滞留的地点不超过10个。
+
+```{r}
+seg_id %>%
+  select(dailyid, cluster) %>%
+  distinct() %>%
+  group_by(dailyid) %>%
+  summarise(cluster_n = n(), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(cluster_n), binwidth = 1, col = "white")
+```
+
+如果分季节来看的话。第一季度停留在一个地点的人比较多，到了第二季度，去多个地点的人变多了，而到了第三和第四季度更是如此。
+
+```{r}
+seg_id %>%
+  mutate(month = month(time), qua = quarter(month)) %>% 
+  select(qua, dailyid, cluster) %>%
+  distinct() %>%
+  group_by(qua, dailyid) %>%
+  summarise(cluster_n = n(), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(cluster_n), binwidth = 1, col = "white") + 
+  facet_wrap(.~ qua)
+```
+
+如果进一步区分本地人和游客来看呢？
+
+```{r}
+seg_id %>%
+  mutate(month = month(time), qua = quarter(month)) %>% 
+  select(qua, source, dailyid, cluster) %>%
+  distinct() %>%
+  group_by(qua, source, dailyid) %>%
+  summarise(cluster_n = n(), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(cluster_n), binwidth = 1, col = "white") + 
+  facet_grid(source ~ qua, scales = "free_y")
+```
+
+## 网络分析
+
+基于每个用户都行动轨迹，可以提取轨迹序列中每个起点-终点对（即OD数据）。例如，如果一个人的轨迹是L76-L75-L89，那么其OD对包括：L76-L75和L75-L89。基于每个用户的OD数据，可以进行网络分析。
+
+下图表示第一个季度的移动网络。图中每个点就是谢定义的地点，位置对应地图上地点多边形的中心；线段则代表两个点之间的流动，线段越粗代表流量越大；线段方向为顺时针，线段颜色为起点所属社群的颜色。需要给谢展示作图流程：添加点和线段；设置地理图层和扩展图层；计算中心度和社群分析；改变点和线段样式。
+
+![](images/WechatIMG8258.jpg)
+
+对于每个网络，还可以计算哪些节点是中心节点，也可以计算网络参数以表明其连通程度。可以计算的网络参数包括但不限于：平均节点中心度-表示网络中平均每个节点的连接数；网络直径（Network Diameter）是网络中任意两个节点之间最短路径的最大值；网络图密度；聚类系数（clustering coefficient）。
+
+此外，根据上次讨论，将中心度比较高（出链接或入链接比较多）的地点挑出来，看看从这些地方出发的人下一步到什么地方去。可见大部分人的下一步目的地仍然是中心节点。
+
+```{r}
+lapply(
+  1:4,
+  function(x) {
+    # 选取前10个节点作为重要节点。
+    center_node <- table(c(edge_export[[x]]$destination, edge_export[[1]]$origin)) %>%
+      sort(decreasing = T) %>%
+      names() %>%
+      head(10)
+    # 前10个节点的去向。
+    to_top <- edge_export[[x]] %>%
+      filter(origin %in% center_node) %>%
+      mutate(destination = case_when(
+        destination %in% center_node ~ "center node",
+        TRUE ~ "other"
+      )) %>%
+      group_by(origin, destination) %>%
+      summarise(n = n(), .groups = "drop")
+    return(to_top)
+  }
+) %>%
+  lapply(
+    function(x) {
+      x %>%
+        ggplot() +
+        geom_col(aes(origin, n, fill = destination))
+    }
+  )
+```
