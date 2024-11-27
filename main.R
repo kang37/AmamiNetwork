@@ -6,8 +6,7 @@ pacman::p_load(
 showtext_auto()
 
 tar_make()
-tar_load(agoop_filt_1)
-tar_load(agoop_filt_3)
+tar_load(agoop_filt)
 tar_load(amami)
 tar_load(loc)
 tar_load(pref_city_code)
@@ -18,7 +17,7 @@ loc <- loc %>%
   mutate(area = st_area(loc) %>% as.numeric())
 # 漏洞：增加本地/外地区分；增加季度信息。
 gis_agoop_coord_cluster <-
-  rbind(agoop_filt_1, agoop_filt_3) %>%
+  agoop_filt %>%
   mutate(
     source = case_when(home_prefcode == 46 ~ "local", TRUE ~ "tourist"),
     qua = quarter(month)
@@ -39,7 +38,7 @@ example_dailyid <- gis_agoop_coord_cluster %>%
   head(10)
 # 可视化轨迹。
 gis_agoop_coord_cluster %>%
-  filter(dailyid == example_dailyid[7]) %>%
+  filter(dailyid == example_dailyid[1]) %>%
   mutate(dailyid_short = substr(dailyid, 1, 5)) %>%
   st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
   mapview(zcol = "hour", col.region = colorRampPalette(c("red", "yellow", "blue")))
@@ -59,7 +58,7 @@ gis_agoop_coord_cluster %>%
   group_by(dailyid) %>%
   summarise(cluster_num = length(unique(cluster)), .groups = "drop") %>%
   ggplot() +
-  geom_histogram(aes(cluster_num), col = "white") +
+  geom_histogram(aes(cluster_num), col = "white", binwidth = 1) +
   theme_bw()
 
 # 每个月有多少人，本地和外地人分别多少？
@@ -107,7 +106,7 @@ seg_id <- gis_agoop_coord_cluster %>%
     new_dailyid = case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
     new_cluster = case_when(is.na(new_cluster) ~ TRUE, TRUE ~ new_cluster)
   ) %>%
-  select(dailyid, time, cluster, new_dailyid, new_cluster) %>%
+  select(dailyid, source, time, cluster, new_dailyid, new_cluster) %>%
   filter(new_dailyid + new_cluster >= 1) %>%
   mutate(seg_id = row_number())
 
@@ -835,7 +834,9 @@ node <- data.frame(Id = node$loc_id) %>%
       rename_with(~ c("Longitude", "Latitude"))
   ) %>%
   tibble()
-write.csv(node, "data_proc/new_od_node.csv", row.names = FALSE)
+write.csv(
+  node, paste0("data_proc/new_od_node_", Sys.Date(), ".csv"), row.names = FALSE
+)
 
 library(purrr)
 edge_export <- split.data.frame(seg_pair_od, seg_pair_od$qua)
@@ -846,7 +847,8 @@ map2(
     select(x, origin, destination) %>%
       rename_with(~ c("Source", "Target")) %>%
       write.csv(
-        ., paste0("data_proc/new_od_edge_", y, ".csv"), row.names = FALSE
+        ., paste0("data_proc/new_od_edge_", y, "_", Sys.Date(), ".csv"),
+        row.names = FALSE
       )
   }
 )
@@ -859,7 +861,8 @@ map2(
     node %>%
       filter(Id %in% unique(c(x$origin, x$destination))) %>%
       write.csv(
-        ., paste0("data_proc/od_node_", y, ".csv"), row.names = FALSE
+        ., paste0("data_proc/od_node_", y, "_", Sys.Date(), ".csv"),
+        row.names = FALSE
       )
   }
 )
