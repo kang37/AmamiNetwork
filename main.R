@@ -1,50 +1,85 @@
 # Preparation ----
 pacman::p_load(
-  lubridate, dplyr, dbscan, sf, tmap, mapview, stringi, showtext,
+  lubridate, dplyr, dbscan, sf, tmap, mapview, stringi, showtext, tmap,
   ggplot2, tidyr, RColorBrewer, targets
 )
 showtext_auto()
 
+# 重新运行tar_make()需要花大约40分钟。
 tar_make()
-tar_load(agoop_filt)
+tar_load(agoop_amami)
 tar_load(amami)
 tar_load(loc)
-tar_load(pref_city_code)
 
-# 漏洞：应该更早增加面积列。
-# 计算面积，单位为平方米。
-loc <- loc %>%
-  mutate(area = st_area(loc) %>% as.numeric())
-# 漏洞：增加本地/外地区分；增加季度信息。
-gis_agoop_coord_cluster <-
-  agoop_filt %>%
+# 导出数据并且在QGIS中进行合并操作。
+agoop_amami %>%
+  select(res_id) %>%
+  st_write(
+    paste0("data_proc/agoop_amami_", Sys.Date(), ".shp"), append = FALSE
+  )
+loc %>%
+  st_write(
+    paste0("data_proc/loc_", Sys.Date(), ".shp"), append = FALSE
+  )
+
+# 读取增添地点信息的轨迹点数据。
+agoop_amami <- agoop_amami %>%
+  left_join(read.csv("data_proc/agoop_amami_loc.csv"), by = "res_id") %>%
+  mutate(loc_id = case_when(is.na(loc_id) ~ "r", TRUE ~ as.character(loc_id)))
+
+# Trajectory between loc_ids ----
+# 量化轨迹：例如，对于某个dailyid而言，其轨迹可能是1-2-1-r-3，其中数字代表地点编号，“r”代表非定义地点。
+traj_1 <- agoop_amami %>%
+  st_drop_geometry() %>%
+  arrange(dailyid, time) %>%
+  # 排序数据中，dailyid变化表示是新的一位客户，loc_id变化表示进入新地点，仅保留这些记录，中间的都是处于同一个定义地点中的数据。
+  group_by(dailyid) %>%
   mutate(
-    source = case_when(home_prefcode == 46 ~ "local", TRUE ~ "tourist"),
-    qua = quarter(month)
+    new_dailyid = c(dailyid != lag(dailyid)),
+    new_loc_id = c(loc_id != lag(loc_id)),
+    new_dailyid = case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
+    new_loc_id = case_when(is.na(new_loc_id) ~ TRUE, TRUE ~ new_loc_id)
   ) %>%
-  # 漏洞：如果提前在loc中加入面积，这里就不用增加这行操作。
-  left_join(loc %>% st_drop_geometry(), by = c("cluster" = "loc_id"))
-table(gis_agoop_coord_cluster$source)
+  select(dailyid, source, time, loc_id, area, new_dailyid, new_loc_id) %>%
+  filter(new_dailyid + new_loc_id >= 1) %>%
+  select(-new_dailyid, -new_loc_id) %>%
+  mutate(traj_id = row_number()) %>%
+  ungroup()
+
+# The duration of stay of each dailyid in each segment.
+traj_2 <- agoop_amami %>%
+  left_join(st_drop_geometry(loc), by = "loc_id") %>%
+  # Add segment sequence.
+  st_drop_geometry() %>%
+  arrange(dailyid, time) %>%
+  left_join(
+    traj_1 %>% select(dailyid, loc_id, area, time, traj_id),
+    by = c("dailyid", "loc_id", "time")
+  ) %>%
+  tidyr::fill(traj_id) %>%
+  # 滞留时间为最大时间减最小时间，加上额外10分钟。加上额外10分钟原因：取样阶段每10分钟取一个点；换言之，否则如果只有一行数据，则滞留时间将为0。
+  group_by(qua, dailyid, loc_id, area, traj_id) %>%
+  summarise(
+    duration_stay =
+      as.numeric(difftime(max(time), min(time), units = "mins"))  + 10,
+    .groups = "drop"
+  ) %>%
+  mutate(dur_stay_per_area = duration_stay / area)
+
+# 合并两个结果。
+traj <- left_join(traj_1, traj_2, by = c("dailyid", "loc_id", "traj_id"))
 
 # General description ----
-# 选择三个轨迹点最多的dailyid展示轨迹点。
-example_dailyid <- gis_agoop_coord_cluster %>%
-  st_drop_geometry() %>%
-  # 每个人各个小时的记录数量。
-  group_by(dailyid) %>%
-  summarise(log = n(), .groups = "drop") %>%
-  arrange(-log) %>%
-  pull(dailyid) %>%
-  head(10)
-# 可视化轨迹。
-gis_agoop_coord_cluster %>%
-  filter(dailyid == example_dailyid[1]) %>%
-  mutate(dailyid_short = substr(dailyid, 1, 5)) %>%
-  st_as_sf(coords = c("lon", "lat"), crs = 4326, agr = "constant") %>%
-  mapview(zcol = "hour", col.region = colorRampPalette(c("red", "yellow", "blue")))
+# 作图展示原始数据点的分布。
+tm_shape(agoop_amami) +
+  tm_dots(size = 0.01, col = "red", alpha = 0.3, palette="div") +
+  tm_facets(by = "qua", along = "source")
+
+# 不同客源的轨迹点数。
+table(agoop_amami$source)
 
 # 每个人每天有几个记录点？
-gis_agoop_coord_cluster %>%
+agoop_amami %>%
   st_drop_geometry() %>%
   group_by(dailyid) %>%
   summarise(n_log = n(), .groups = "drop") %>%
@@ -53,16 +88,16 @@ gis_agoop_coord_cluster %>%
   theme_bw()
 
 # 每个人每天滞留地点数量？
-gis_agoop_coord_cluster %>%
+agoop_amami %>%
   st_drop_geometry() %>%
   group_by(dailyid) %>%
-  summarise(cluster_num = length(unique(cluster)), .groups = "drop") %>%
+  summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
   ggplot() +
-  geom_histogram(aes(cluster_num), col = "white", binwidth = 1) +
+  geom_histogram(aes(loc_id_num), col = "white", binwidth = 1) +
   theme_bw()
 
 # 每个月有多少人，本地和外地人分别多少？
-gis_agoop_coord_cluster %>%
+agoop_amami %>%
   st_drop_geometry() %>%
   group_by(month, source) %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
@@ -70,7 +105,7 @@ gis_agoop_coord_cluster %>%
   geom_col(aes(month, dailyid_num, fill = source)) +
   facet_wrap(.~ source, scales = "free")
 # 每个季度有多少人？
-gis_agoop_coord_cluster %>%
+agoop_amami %>%
   st_drop_geometry() %>%
   group_by(qua, source) %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
@@ -78,158 +113,148 @@ gis_agoop_coord_cluster %>%
   geom_col(aes(qua, dailyid_num, fill = source)) +
   facet_wrap(.~ source, scales = "free")
 
-# 每个地点滞留多少人？只取人数较多的地点。
-# 基本上都表现为第三季度人数最多。
-gis_agoop_coord_cluster %>%
-  st_drop_geometry() %>%
-  group_by(qua, cluster) %>%
+# Maps of visitor number and duration ----
+## Population ----
+# 各个地点总共有多少人滞留？
+# 漏洞：按照这样的方法统计，得到的是每个季度在各个地点停留的、按照客源区分的总人数。是否需要除以纳入计算的天数，以得到平均每天的滞留人数呢？从目的考虑，未必，因为目的是要看哪些地方滞留人数和滞留时间有差异。虽然不比考虑除以时间，但是可以考虑除以面积。
+loc_pop <-
+  traj %>%
+  group_by(source, qua, loc_id) %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
-  arrange(-dailyid_num) %>%
-  head(100) %>%
-  mutate(cluster = as.character(cluster)) %>%
-  ggplot() +
-  geom_line(aes(qua, dailyid_num)) +
-  theme_bw() +
-  facet_wrap(.~ cluster, scales = "free_y")
+  left_join(loc, by = "loc_id") %>%
+  # 删除非定义地点的数据。
+  filter(loc_id != "r") %>%
+  # 计算单位面积滞留人口。
+  mutate(dailyid_num_per_area = dailyid_num / area) %>%
+  st_as_sf(sf_column_name = "geometry")
 
-# Trajectory between clusters ----
-# Further divide segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
-# Should further divid segments: a dailyid has more than one segment even for a cluster. For instance, the pathway c1-c2-c1-c3 has 2 c1 segments.
-# Get segment ID for each dailyid.
-seg_id <- gis_agoop_coord_cluster %>%
-  st_drop_geometry() %>%
-  arrange(dailyid, time) %>%
-  group_by(dailyid) %>%
-  mutate(
-    new_dailyid = c(dailyid != lag(dailyid)),
-    new_cluster = c(cluster != lag(cluster)),
-    new_dailyid = case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
-    new_cluster = case_when(is.na(new_cluster) ~ TRUE, TRUE ~ new_cluster)
+# 分季节分客源各个地点总滞留人数。
+tm_shape(amami) +
+  tm_polygons(col = "white") +
+  tm_shape(loc_pop) +
+  tm_dots(size = "dailyid_num", alpha = 0.5) +
+  tm_facets(by = "qua", along = "source")
+
+# 分季节分客源单位面积滞留人数。
+# 漏洞：可能受极端值影响。
+quantile(loc_pop$dailyid_num)
+tm_shape(amami) +
+  tm_polygons(col = "white") +
+  # 漏洞：为了消除极端值的影响，删除只包50%分位数或以下人数的地点。
+  tm_shape(loc_pop %>% filter(dailyid_num > 5)) +
+  tm_dots(size = "dailyid_num_per_area", alpha = 0.5) +
+  tm_facets(by = "qua", along = "source")
+
+## Duration ----
+# 各个地点的每人滞留时间中位数是多少？
+# 漏洞：为什么有些行的dur_stay_per_area是空值？
+loc_dur <-
+  traj %>%
+  group_by(source, qua, loc_id) %>%
+  summarise(
+    dailyid_num = length(unique(dailyid)),
+    mid_dur_stay = median(duration_stay),
+    mid_dur_stay_per_area = median(dur_stay_per_area),
+    .groups = "drop"
   ) %>%
-  select(dailyid, source, time, cluster, new_dailyid, new_cluster) %>%
-  filter(new_dailyid + new_cluster >= 1) %>%
-  mutate(seg_id = row_number())
+  left_join(loc, by = "loc_id") %>%
+  # 删除非定义地点的数据。
+  filter(loc_id != "r") %>%
+  st_as_sf(sf_column_name = "geometry")
 
-# The duration of stay of each dailyid in each segment.
-seg <- gis_agoop_coord_cluster %>%
-  # Add segment sequence.
-  st_drop_geometry() %>%
-  arrange(dailyid, hour) %>%
-  left_join(seg_id, by = c("dailyid", "cluster", "time")) %>%
-  # 漏洞：需要去分组吗？
-  # ungroup() %>%
-  tidyr::fill(seg_id) %>%
-  # Calculate duration of stay.
-  group_by(qua, dailyid, cluster, area, seg_id) %>%
-  summarise(duration_stay = max(time) - min(time), .groups = "drop") %>%
-  mutate(
-    # 将滞留时间由秒钟转化成分钟。
-    duration_stay = as.numeric(duration_stay) / 60,
-    cluster = as.character(cluster),
-    dur_stay_per_area = duration_stay / area
-  )
+# 可视化。
+# 滞留时间中位数。
+tm_shape(amami) +
+  tm_polygons(col = "white") +
+  tm_shape(loc_dur) +
+  tm_dots(size = "mid_dur_stay", alpha = 0.5) +
+  tm_facets(by = "qua", along = "source")
 
-# Plot duration of stay of each cluster for each visitor, based on segment duration stay data.
-ggplot(data = seg, aes(cluster, duration_stay)) +
-  geom_boxplot() +
-  geom_jitter(aes(col = as.character(qua)), alpha = 0.2) +
-  labs(x = "Cluster", y = "Duration of stay") +
-  coord_flip()
 # 单位面积滞留时间。
-ggplot(data = seg, aes(cluster, dur_stay_per_area)) +
-  geom_boxplot() +
-  geom_jitter(aes(col = as.character(qua)), alpha = 0.3) +
-  labs(x = "Cluster", y = "单位面积滞留时间（分/平米）") +
-  coord_flip() +
-  theme_bw() +
-  theme(panel.grid = element_blank()) +
-  lims(y = c(0, 2))
-# 总滞留时间和面积之间的关系？
-ggplot(data = seg) +
-  geom_point(aes(area, duration_stay), alpha = 0.5)
-# 换成对数。
-ggplot(data = seg) +
-  geom_point(aes(log(area), duration_stay), alpha = 0.5)
+# 漏洞：可能受极端值影响。
+quantile(loc_dur$dailyid_num)
+tm_shape(amami) +
+  tm_polygons(col = "white") +
+  # 漏洞：为了消除极端值的影响，删除只包50%分位数或以下人数的地点。
+  tm_shape(loc_dur %>% filter(dailyid_num > 5)) +
+  tm_dots(size = "mid_dur_stay_per_area", alpha = 0.5) +
+  tm_facets(by = "qua", along = "source")
+
+## Pop and duration ----
+# 总滞留时间和总滞留人数关系。
+st_drop_geometry(loc_pop) %>%
+  left_join(
+    st_drop_geometry(loc_dur),
+    by = c("source", "qua", "loc_id", "dailyid_num", "area")
+  ) %>%
+  ggplot() +
+  geom_point(aes(log(dailyid_num), log(mid_dur_stay)))
+
+# 单位面积滞留时间和单位面积滞留人数关系。
+st_drop_geometry(loc_pop) %>%
+  left_join(
+    st_drop_geometry(loc_dur),
+    by = c("source", "qua", "loc_id", "dailyid_num", "area")
+  ) %>%
+  ggplot() +
+  geom_point(
+    aes(log(dailyid_num_per_area), log(mid_dur_stay_per_area)), alpha = 0.3
+  )
+# 漏洞：单位面积停留时间最长、人数最多的236号是酒店的一部分。
 # 漏洞：计算单位道路停留时间？
 
-# 分地点计算每个人每段路平均停留时长等。
-seg %>%
-  group_by(cluster) %>%
-  summarise(
-    mean_dur_stay = mean(duration_stay, na.rm = TRUE),
-    mid_dur_stay = median(duration_stay, na.rm = TRUE),
-    sd_dur_stay = sd(duration_stay, na.rm = TRUE),
-    vc_dur_stay = sd_dur_stay / mean_dur_stay,
-    n_dur_stay = n()
-  ) %>%
-  select(cluster, mid_dur_stay, mean_dur_stay, sd_dur_stay, vc_dur_stay)
-
-# 分地点计算。
+## Total duration ----
 # 每个人各地点总停留时长？
-seg %>%
-  group_by(dailyid, cluster) %>%
-  # 单位：小时。
-  summarise(duration_stay = sum(duration_stay) / 60, .groups = "drop") %>%
-  ggplot() +
-  geom_point(aes(cluster, duration_stay), alpha = 0.5) +
-  coord_flip()
-
-seg %>%
-  group_by(dailyid, cluster) %>%
-  # 单位：小时。
-  summarise(duration_stay = sum(duration_stay) / 60, .groups = "drop") %>%
-  group_by(cluster) %>%
+loc_dur_tot <-
+  traj %>%
+  group_by(source, qua, loc_id) %>%
   summarise(
-    mean_dur_stay = mean(duration_stay, na.rm = TRUE),
-    mid_dur_stay = median(duration_stay, na.rm = TRUE),
-    sd_dur_stay = sd(duration_stay, na.rm = TRUE),
-    vc_dur_stay = sd_dur_stay / mean_dur_stay,
-    n_dur_stay = n()
-  )
-
-# Most visitors stay in a cluster; segment visited is similar to cluster visited number.
-# 每个人访问了多少个cluster。
-# 漏洞：seg_id和seg做出来的图不同。
-seg_id %>%
-  select(dailyid, cluster) %>%
-  distinct() %>%
-  group_by(dailyid) %>%
-  summarise(cluster_n = n(), .groups = "drop") %>%
-  ggplot() +
-  geom_histogram(aes(cluster_n), binwidth = 1, col = "white")
+    dailyid_num = length(unique(dailyid)),
+    dur_stay = sum(duration_stay),
+    .groups = "drop"
+  ) %>%
+  left_join(loc, by = "loc_id") %>%
+  # 删除非定义地点的数据。
+  filter(loc_id != "r") %>%
+  st_as_sf(sf_column_name = "geometry")
+tm_shape(amami) +
+  tm_polygons(col = "white") +
+  tm_shape(loc_dur_tot) +
+  tm_dots(size = "dur_stay", alpha = 0.5) +
+  tm_facets(by = "qua", along = "source")
 
 # In each mode, what is the structure?
-# Bug: Take cluster 76 as an example.
+# Bug: Take loc_id 76 as an example.
 seg_time %>%
   left_join(
     seg_time %>%
       group_by(dailyid) %>%
-      summarise(cluster_n = n(), .groups = "drop") %>%
-      filter(cluster_n == 76),
+      summarise(loc_id_n = n(), .groups = "drop") %>%
+      filter(loc_id_n == 76),
     by = "dailyid"
   ) %>%
-  filter(!is.na(cluster_n)) %>%
+  filter(!is.na(loc_id_n)) %>%
   pull(seg_id) %>%
   table()
 
 # Pairwise movement matrix.
 # Has the data.frame been arranged in order?
-# Bug: If a dailyid mostly stay in a cluster, but s/he goes out of the cluster usually? Then "c1-edge-c1-edge-c1" will become "c1".
-# Bug: It is equal to that we remove the dailyid who stays in a cluster for the whole day.
+# Bug: If a dailyid mostly stay in a loc_id, but s/he goes out of the loc_id usually? Then "c1-edge-c1-edge-c1" will become "c1".
+# Bug: It is equal to that we remove the dailyid who stays in a loc_id for the whole day.
 seg_pair_od <- seg %>%
   arrange(dailyid, seg_id) %>%
   mutate(
     new_dailyid = c(dailyid != lag(dailyid)),
-    new_cluster = c(cluster != lag(cluster)),
+    new_loc_id = c(loc_id != lag(loc_id)),
     new_dailyid = case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
-    new_cluster = case_when(is.na(new_cluster) ~ TRUE, TRUE ~ new_cluster),
+    new_loc_id = case_when(is.na(new_loc_id) ~ TRUE, TRUE ~ new_loc_id),
     # If the answer is yes to either question, then the state is changed.
-    state_chg = c(new_dailyid | new_cluster)
+    state_chg = c(new_dailyid | new_loc_id)
   ) %>%
   filter(state_chg) %>%
   group_by(dailyid) %>%
   mutate(
-    destination = cluster, origin = lag(cluster)
+    destination = loc_id, origin = lag(loc_id)
   ) %>%
   filter(!is.na(origin)) %>%
   ungroup()
@@ -263,7 +288,7 @@ map_traj <- function(x) {
 }
 
 # seg_time is logs of stay time larger than 15 min.
-# Bug: Should remove the noise (cluster = 0)?
+# Bug: Should remove the noise (loc_id = 0)?
 merge_traj <- function(x) {
   # Split the character vector into individual digits.
   neighborhood_digits <- strsplit(x, "-")[[1]]
@@ -283,15 +308,15 @@ merge_traj <- function(x) {
 traj_simp <- seg_time %>%
   arrange(dailyid, seg_id) %>%
   mutate(
-    # If it is a new dailyid, or if it enters a new cluster.
+    # If it is a new dailyid, or if it enters a new loc_id.
     new_dailyid = c(dailyid != lag(dailyid)),
-    new_cluster_id = c(cluster_id != lag(cluster_id)),
+    new_loc_id_id = c(loc_id_id != lag(loc_id_id)),
     new_dailyid =
       case_when(is.na(new_dailyid) ~ TRUE, TRUE ~ new_dailyid),
-    new_cluster_id =
-      case_when(is.na(new_cluster_id) ~ TRUE, TRUE ~ new_cluster_id),
+    new_loc_id_id =
+      case_when(is.na(new_loc_id_id) ~ TRUE, TRUE ~ new_loc_id_id),
     # If the answer is yes to either question, then the state is changed.
-    state_chg = c(new_dailyid | new_cluster_id)
+    state_chg = c(new_dailyid | new_loc_id_id)
   ) %>%
   # Every time the state changes, assign a new visit ID. So for the non-changed rows, assgin NA then fill them with the changed visit ID.
   group_by(dailyid, state_chg) %>%
@@ -302,11 +327,11 @@ traj_simp <- seg_time %>%
   )) %>%
   fill(visit_id) %>%
   # Make trajectory string.
-  select(dailyid, visit_id, cluster_id) %>%
+  select(dailyid, visit_id, loc_id_id) %>%
   distinct() %>%
-  mutate(cluster_id = as.character(cluster_id)) %>%
+  mutate(loc_id_id = as.character(loc_id_id)) %>%
   group_by(dailyid) %>%
-  summarise(traj_1 = paste0(cluster_id, collapse = "-")) %>%
+  summarise(traj_1 = paste0(loc_id_id, collapse = "-")) %>%
   ungroup() %>%
   # Further abstract trajectory. For example, a "c1-c2-c1" will be "0-1-0".
   mutate(traj_2 = lapply(traj_1, map_traj) %>% unlist()) %>%
@@ -453,8 +478,8 @@ seg_pair_od_prop %>%
 od_node <- st_coordinates(gis_agoop_coord_filt_sample) %>%
   data.frame() %>%
   rename_with(~ c("longitude", "latitude")) %>%
-  mutate(cluster = gis_agoop_coord_filt_sample$cluster) %>%
-  group_by(cluster) %>%
+  mutate(loc_id = gis_agoop_coord_filt_sample$loc_id) %>%
+  group_by(loc_id) %>%
   summarise(lon = median(longitude), lat = median(latitude))
 od_edge <-
   seg_pair_od %>%
@@ -480,11 +505,11 @@ ggplot() +
       group_by(home_pref_grp, season) %>%
       mutate(n = n / max(n)) %>%
       left_join(
-        od_node %>% rename(origin = cluster, ori_lon = lon, ori_lat = lat),
+        od_node %>% rename(origin = loc_id, ori_lon = lon, ori_lat = lat),
         by = "origin"
       ) %>%
       left_join(
-        od_node %>% rename(destination = cluster, dest_lon = lon, dest_lat = lat),
+        od_node %>% rename(destination = loc_id, dest_lon = lon, dest_lat = lat),
         by = "destination"
       ) ,
     aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, linewidth = n,
@@ -496,7 +521,7 @@ ggplot() +
     data = od_node, aes(x = lon, y = lat), col = "grey", size = 3.5
   ) +
   geom_text(
-    data = od_node, aes(x = lon, y = lat, label = cluster), size = 3
+    data = od_node, aes(x = lon, y = lat, label = loc_id), size = 3
   ) +
   labs(x = "Lon", y = "Lat") +
   theme_bw() +
@@ -523,11 +548,11 @@ ggplot() +
       group_by(home_gender, season) %>%
       mutate(n = n / sum(n)) %>%
       left_join(
-        od_node %>% rename(origin = cluster, ori_lon = lon, ori_lat = lat),
+        od_node %>% rename(origin = loc_id, ori_lon = lon, ori_lat = lat),
         by = "origin"
       ) %>%
       left_join(
-        od_node %>% rename(destination = cluster, dest_lon = lon, dest_lat = lat),
+        od_node %>% rename(destination = loc_id, dest_lon = lon, dest_lat = lat),
         by = "destination"
       ) ,
     aes(x = ori_lon, y = ori_lat, xend = dest_lon, yend = dest_lat, size = n,
@@ -539,7 +564,7 @@ ggplot() +
     data = od_node, aes(x = lon, y = lat), col = "grey", size = 3.5
   ) +
   geom_text(
-    data = od_node, aes(x = lon, y = lat, label = cluster), size = 3
+    data = od_node, aes(x = lon, y = lat, label = loc_id), size = 3
   ) +
   labs(x = "Lon", y = "Lat") +
   theme_bw() +
@@ -903,14 +928,14 @@ lapply(
 # 每个人一天中的出发点只有一个。符合条件的分析对象：从中心节点出发。
 # 漏洞：从某个地点出发后，下一步马上去往哪里？还是几次经停都算呢？如果不考虑其后经停，只考虑出发之后的下一步的话，只取第一个节点和第二个节点即可。
 tar_dailyid <- seg_id %>%
-  filter(seg_id == 1, cluster %in% center_node) %>%
+  filter(seg_id == 1, loc_id %in% center_node) %>%
   pull(dailyid) %>%
   unique()
 seg_id %>%
   filter(dailyid %in% tar_dailyid, seg_id == 1 | seg_id == 2) %>%
   mutate(month = month(time), qua = quarter(month)) %>%
-  select(-time, -new_cluster, -new_dailyid) %>%
-  pivot_wider(names_from = seg_id, values_from = cluster) %>%
+  select(-time, -new_loc_id, -new_dailyid) %>%
+  pivot_wider(names_from = seg_id, values_from = loc_id) %>%
   rename("origin" = "1", "destination" = "2") %>%
   group_by(qua, origin, destination) %>%
   summarise(n = n(), .groups = "drop") %>%

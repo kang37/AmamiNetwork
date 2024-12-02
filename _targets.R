@@ -11,12 +11,6 @@ tar_option_set(packages = c(
 set.seed(1234)
 # End this file with a list of target objects.
 list(
-  # Constant ----
-  # Default CRS for the project: JGD2011.
-  # By the way, EPSG for JGD2000 is 4612.
-  tar_target(
-    my_crs, 6668
-  ),
   # Pref and cities ----
   # Prefcode and city code.
   tar_target(
@@ -53,9 +47,16 @@ list(
     # 谢于松地点定义文件。
     # 漏洞：ID列编号不连续；坐标是什么。
     loc,
-    st_read(dsn = "data_raw/loc_def", layer = "大区域与勾画的进行重叠和叠加") %>%
+    st_read(
+      dsn = "data_raw/loc_def", layer = "大区域与勾画的进行重叠和叠加"
+    ) %>%
       st_set_crs(4326) %>%
-      select(loc_id = OBJECTID)
+      select(loc_id = OBJECTID) %>%
+      # 计算每个定义地点的面积，单位为平方米。
+      mutate(
+        area = st_area(.) %>% as.numeric(),
+        loc_id = as.character(loc_id)
+      )
   ),
   # Agoop ----
   # Get all file names.
@@ -140,7 +141,7 @@ list(
       distinct() %>%
       group_by(month) %>%
       summarise(n_dailyid = n(), .groups = "drop") %>%
-      mutate(smp_dailyid = round(n_dailyid / sum(n_dailyid) * 1000))
+      mutate(smp_dailyid = round(n_dailyid / sum(n_dailyid) * 15000))
   ),
   # 随机取所需数量的DailyID。
   tar_target(
@@ -165,11 +166,49 @@ list(
     agoop_amami_pre %>%
       left_join(smp_dailyid, by = c("month", "dailyid")) %>%
       filter(smp) %>%
+      select(-smp) %>%
+      # 增加客源和季度信息。
+      mutate(
+        source = case_when(home_prefcode == 46 ~ "local", TRUE ~ "tourist"),
+        qua = case_when(
+          month <= 3 ~ "1",
+          month <= 6 ~ "2",
+          month <= 9 ~ "3",
+          month <= 12 ~ "4"
+        )
+      ) %>%
+      # 增加记录点编号。
+      arrange(time, dailyid) %>%
+      mutate(res_id = row_number()) %>%
       # 转化成sf数据。
       st_as_sf(
         coords = c("longitude", "latitude"), crs = 4326, agr = "constant"
-      ) %>%
+      )
       # 判断每个轨迹点是否在定义地点中。
-      st_intersection(st_geometry(loc))
+      # st_intersection(loc)
+  ),
+  # 不取样，直接导出总体。
+  tar_target(
+    agoop_amami_all,
+    agoop_amami_pre %>%
+      # 漏洞：排序的时候应以dailyid为优先，否则dailyid会被分散到不相邻的行中。
+      arrange(month, day, dailyid, time) %>%
+      # 增加客源和季度信息。
+      mutate(
+        source = case_when(home_prefcode == 46 ~ "local", TRUE ~ "tourist"),
+        qua = case_when(
+          month <= 3 ~ "1",
+          month <= 6 ~ "2",
+          month <= 9 ~ "3",
+          month <= 12 ~ "4"
+        )
+      ) %>%
+      # 增加记录点编号。
+      arrange(time, dailyid) %>%
+      mutate(res_id = row_number()) %>%
+      # 转化成sf数据。
+      st_as_sf(
+        coords = c("longitude", "latitude"), crs = 4326, agr = "constant"
+      )
   )
 )
