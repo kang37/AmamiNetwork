@@ -29,11 +29,13 @@ list(
       left_join(pref_city_code, by = c("city_in_amami" = "cityname")) %>%
       pull(citycode)
   ),
-  # Amami boundary
+  # Amami boundary.
   tar_target(
     amami,
-    st_read(dsn = "data_raw/KagoshimaAdmin/N03-180101_46_GML",
-            layer = "N03-18_46_180101") %>%
+    st_read(
+      dsn = "data_raw/KagoshimaAdmin/N03-180101_46_GML",
+      layer = "N03-18_46_180101"
+    ) %>%
       rename(citycode = N03_007) %>%
       # cities (villages) in Amamioshima island
       filter(citycode %in% tar_city_code) %>%
@@ -139,7 +141,9 @@ list(
       arrange(month, day, dailyid, time) %>%
       # 增加客源和季度信息。
       mutate(
-        source = case_when(home_prefcode == 46 ~ "local", TRUE ~ "tourist"),
+        source = case_when(
+          home_citycode %in% tar_city_code ~ "local", TRUE ~ "tourist"
+        ),
         qua = case_when(
           month <= 3 ~ "1",
           month <= 6 ~ "2",
