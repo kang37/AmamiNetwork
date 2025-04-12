@@ -40,17 +40,10 @@ list(
       st_union() %>%
       st_sf()
   ),
-  # 定义目标地点。
+  # 自定义目标地点。
   tar_target(
-    # Bug: Need to determine minPts and eps first, manually. If k is larger, the calc is slower. The following plot takes 2 min.
-    # 各个轨迹点落在哪个地点内。
-    # 谢于松地点定义文件。
-    # 漏洞：ID列编号不连续；坐标是什么。
     loc,
-    st_read(
-      dsn = "data_raw/loc_def", layer = "大区域与勾画的进行重叠和叠加"
-    ) %>%
-      st_set_crs(4326) %>%
+    st_read(dsn = "data_raw/loc_def", layer = "loc_def") %>%
       select(loc_id = OBJECTID) %>%
       # 计算每个定义地点的面积，单位为平方米。
       mutate(
