@@ -131,62 +131,6 @@ list(
       filter(minute_step_filt == 1) %>%
       select(-minute_step_filt, -minute_step)
   ),
-  # Re-sampling.
-  # 根据每个月的人数进行采样，首先确定每个月的人数。
-  # 每个月取多少DailyID进行分析。
-  tar_target(
-    smp_dailyid_num,
-    agoop_amami_pre %>%
-      select(month, dailyid) %>%
-      distinct() %>%
-      group_by(month) %>%
-      summarise(n_dailyid = n(), .groups = "drop") %>%
-      mutate(smp_dailyid = round(n_dailyid / sum(n_dailyid) * 15000))
-  ),
-  # 随机取所需数量的DailyID。
-  tar_target(
-    smp_dailyid,
-    map2(
-      smp_dailyid_num$month,
-      smp_dailyid_num$smp_dailyid,
-      function(x, y) {
-        agoop_amami_pre %>%
-          select(month, dailyid) %>%
-          distinct() %>%
-          filter(month == x) %>%
-          slice_sample(n = y)
-      }
-    ) %>%
-      bind_rows() %>%
-      mutate(smp = TRUE)
-  ),
-  # 从原始数据中取样。
-  tar_target(
-    agoop_amami,
-    agoop_amami_pre %>%
-      left_join(smp_dailyid, by = c("month", "dailyid")) %>%
-      filter(smp) %>%
-      select(-smp) %>%
-      # 增加客源和季度信息。
-      mutate(
-        source = case_when(home_prefcode == 46 ~ "local", TRUE ~ "tourist"),
-        qua = case_when(
-          month <= 3 ~ "1",
-          month <= 6 ~ "2",
-          month <= 9 ~ "3",
-          month <= 12 ~ "4"
-        )
-      ) %>%
-      # 增加记录点编号。
-      arrange(time, dailyid) %>%
-      mutate(res_id = row_number()) %>%
-      # 转化成sf数据。
-      st_as_sf(
-        coords = c("longitude", "latitude"), crs = 4326, agr = "constant"
-      )
-      # 判断每个轨迹点是否在定义地点中。
-      # st_intersection(loc)
-  ),
   # 不取样，直接导出总体。
   tar_target(
     agoop_amami_all,
