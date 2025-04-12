@@ -1,15 +1,13 @@
 library(targets)
 
-# Set target-specific options such as packages.
+# 加载程序包。
 tar_option_set(packages = c(
   "jmastats", "lubridate", "openxlsx", "stringr", "dplyr", "tidyr", "ggplot2",
   "geojsonsf", "sf", "tmap", "parallel", "showtext", "patchwork", "jpmesh",
   "mapview", "data.table", "purrr"
 ))
 
-# Ensure sample to be consistent.
-set.seed(1234)
-# End this file with a list of target objects.
+# 构建变量。
 list(
   # Pref and cities ----
   # Prefcode and city code.
@@ -56,8 +54,7 @@ list(
       select(loc_id = OBJECTID) %>%
       # 计算每个定义地点的面积，单位为平方米。
       mutate(
-        area = st_area(.) %>% as.numeric(),
-        loc_id = as.character(loc_id)
+        loc_id = as.character(loc_id), loc_area = st_area(.) %>% as.numeric()
       )
   ),
   # Agoop ----
@@ -67,9 +64,9 @@ list(
     list.files(
       "data_raw/23_Agoop_amami_data", recursive = TRUE, full.names = TRUE
     ) %>%
-      grep("PDP", x = ., value = TRUE) %>%
-      .[!grepl("zip", x = .)]
+      grep("PDP", x = ., value = TRUE)
   ),
+  # 并行计算准备。
   # 获取Agoop原始数据。
   tar_target(
     agoop_raw,
@@ -80,12 +77,7 @@ list(
       select(
         dailyid, year, month, day, dayofweek, hour, minute,
         latitude, longitude, home_prefcode, home_citycode, accuracy, gender
-      ) %>%
-      left_join(
-        pref_city_code,
-        by = c("home_prefcode" = "prefcode", "home_citycode" = "citycode")
-      ) %>%
-      rename("home_prefname" = "prefname", "home_cityname" = "cityname")
+      )
   ),
   # 计算原始数据的数据量。
   tar_target(
@@ -93,7 +85,7 @@ list(
     nrow(agoop_raw)
   ),
   tar_target(
-    agoop_amami_pre,
+    agoop_amami,
     agoop_raw %>%
       # 删除奄美大岛及附近岛屿之外的点。
       filter(
@@ -131,12 +123,7 @@ list(
       mutate(minute_step_filt = row_number()) %>%
       ungroup() %>%
       filter(minute_step_filt == 1) %>%
-      select(-minute_step_filt, -minute_step)
-  ),
-  # 不取样，直接导出总体。
-  tar_target(
-    agoop_amami_all,
-    agoop_amami_pre %>%
+      select(-minute_step_filt, -minute_step) %>%
       # 漏洞：排序的时候应以dailyid为优先，否则dailyid会被分散到不相邻的行中。
       arrange(month, day, dailyid, time) %>%
       # 增加客源和季度信息。
@@ -145,18 +132,29 @@ list(
           home_citycode %in% tar_city_code ~ "local", TRUE ~ "tourist"
         ),
         qua = case_when(
-          month <= 3 ~ "1",
-          month <= 6 ~ "2",
-          month <= 9 ~ "3",
-          month <= 12 ~ "4"
+          month <= 3 ~ "1", month <= 6 ~ "2",
+          month <= 9 ~ "3", month <= 12 ~ "4"
         )
       ) %>%
       # 增加记录点编号。
       arrange(time, dailyid) %>%
       mutate(res_id = row_number()) %>%
+      # 加入来源县市名称。
+      left_join(
+        pref_city_code,
+        by = c("home_prefcode" = "prefcode", "home_citycode" = "citycode")
+      ) %>%
+      rename("home_prefname" = "prefname", "home_cityname" = "cityname") %>%
       # 转化成sf数据。
       st_as_sf(
         coords = c("longitude", "latitude"), crs = 4326, agr = "constant"
-      )
+      ) %>%
+      # 判断各个轨迹点所属地点。
+      mutate(
+        loc_id = loc$loc_id[as.numeric(st_intersects(., loc))]
+        loc_id = case_when(is.na(loc_id) ~ "r", TRUE ~ loc_id)
+      ) %>%
+      # 加入对应地点面积。
+      left_join(loc, by = "loc_id")
   )
 )
