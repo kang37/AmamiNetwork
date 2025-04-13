@@ -319,7 +319,7 @@ gephi_data <- od %>%
   summarise(flow = n(), .groups = "drop") %>%
   split.data.frame(.$qua)
 
-# 导出边。
+# 导出边：分季节和客源。
 map2(
   rep(1:4, 2),
   rep(c("local", "tourist"), each = 4),
@@ -334,7 +334,21 @@ map2(
       )
   }
 )
-# 导出节点。
+# 导出边：分季节，不分客源。
+lapply(
+  c(1:4),
+  function(x) {
+    gephi_data[[x]] %>%
+      select(origin, destination, flow) %>%
+      rename_with(~ c("Source", "Target", "Weight")) %>%
+      write.csv(
+        ., paste0("data_proc/od_edge_", x, "_loc_tour_", Sys.Date(), ".csv"),
+        row.names = FALSE
+      )
+  }
+)
+
+# 导出节点：分季节和客源。
 map2(
   rep(1:4, 2),
   rep(c("local", "tourist"), each = 4),
@@ -345,6 +359,20 @@ map2(
       ) %>%
       write.csv(
         ., paste0("data_proc/od_node_", x, "_", y, "_", Sys.Date(), ".csv"),
+        row.names = FALSE
+      )
+  }
+)
+# 导出节点：分季节，不分客源。
+lapply(
+  c(1:4),
+  function(x) {
+    node %>%
+      filter(
+        Id %in% unique(c(gephi_data[[x]]$origin, gephi_data[[x]]$destination))
+      ) %>%
+      write.csv(
+        ., paste0("data_proc/od_node_", x, "_loc_tour_", Sys.Date(), ".csv"),
         row.names = FALSE
       )
   }
