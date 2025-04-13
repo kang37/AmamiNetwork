@@ -7,29 +7,49 @@ showtext_auto()
 
 # 重新运行tar_make()需要花大约40分钟。
 tar_make()
-tar_load(agoop_amami_all)
+tar_load(agoop_amami)
 tar_load(amami)
 tar_load(loc)
 
-# 导出数据并且在QGIS中进行合并操作。
-agoop_amami_all %>%
-  select(res_id) %>%
-  st_write(
-    paste0("data_proc/agoop_amami_", Sys.Date(), ".shp"), append = FALSE
-  )
-loc %>%
-  st_write(
-    paste0("data_proc/loc_", Sys.Date(), ".shp"), append = FALSE
+# 对每个地点，计算其包含的轨迹点个数、涉及的人数。
+loc_smry <- agoop_amami %>%
+  st_drop_geometry() %>%
+  group_by(loc_id, source) %>%
+  summarise(
+    tp_num = n(),
+    dailyid_num = length(unique(dailyid)),
+    .groups = "drop"
   )
 
-# 读取增添地点信息的轨迹点数据。
-agoop_amami <- agoop_amami_all %>%
-  left_join(
-    st_read("data_proc", layer = "agoop_amami_loc_20241202") %>%
-      st_drop_geometry(),
-    by = "res_id"
-  ) %>%
-  mutate(loc_id = case_when(is.na(loc_id) ~ "r", TRUE ~ as.character(loc_id)))
+plt_loc_smry <- function(tar_var) {
+  loc_smry_proc <- loc_smry %>%
+    pivot_wider(
+      id_cols = loc_id,
+      names_from = source, values_from = all_of(tar_var), values_fill = 0
+    ) %>%
+    mutate(vis_2_loc = tourist / local, num = tourist + local) %>%
+    mutate(
+      vis_2_loc_quan = cut(
+        vis_2_loc,
+        breaks = quantile(vis_2_loc, probs = seq(0, 1, 0.25), na.rm = TRUE),
+        labels = 1:4,
+        include.lowest = TRUE
+      )
+    ) %>%
+    left_join(loc, by = "loc_id") %>%
+    st_as_sf()
+  ggplot() +
+    geom_sf(data = amami) +
+    geom_sf(
+      data = st_centroid(loc_smry_proc),
+      aes(size = num, col = as.numeric(vis_2_loc_quan)), alpha = 0.5
+    ) +
+    scale_color_gradient(low = "blue", high = "red") +
+    theme_minimal() +
+    labs(col = "Vistor/Local")
+}
+plt_loc_smry("tp_num")
+plt_loc_smry("dailyid_num")
 
 # 对于每个人，计算其在每个路段的滞留时间和单位面积滞留时间。这里“路段”是指其按照时间顺序经过的时间-地段区间，例如，一个人的轨迹是1-3-2-r-2，则他所经过的路段包括4个定义地点和一个非定义地点（r）。
 event <- agoop_amami %>%
@@ -43,13 +63,14 @@ event <- agoop_amami %>%
   ) %>%
   ungroup() %>%
   # 滞留时间为最大时间减最小时间，加上额外10分钟。加上额外10分钟原因：取样阶段每10分钟取一个点；换言之，否则如果只有一行数据，则滞留时间将为0。
-  group_by(source, qua, dailyid, loc_id, area, event_id) %>%
+  group_by(source, qua, dailyid, loc_id, event_id) %>%
   summarise(
     event_dur_stay =
       as.numeric(difftime(max(time), min(time), units = "mins"))  + 10,
     .groups = "drop"
   ) %>%
-  mutate(event_dur_stay_per_area = event_dur_stay / area)
+  left_join(loc, by = "loc_id") %>%
+  mutate(event_dur_stay_per_area = event_dur_stay / loc_area)
 
 # 按照路段或地点计算：滞留人数，单位面积滞留人数，滞留时间中位数，单位面积滞留时间中位数。
 loc_smry <- left_join(
