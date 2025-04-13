@@ -44,11 +44,11 @@ list(
   tar_target(
     loc,
     st_read(dsn = "data_raw/loc_def", layer = "loc_def") %>%
-      select(loc_id = OBJECTID) %>%
       # 计算每个定义地点的面积，单位为平方米。
       mutate(
         loc_id = as.character(loc_id), loc_area = st_area(.) %>% as.numeric()
-      )
+      ) %>%
+      st_transform(6668)
   ),
   # Agoop ----
   # Get all file names.
@@ -59,7 +59,6 @@ list(
     ) %>%
       grep("PDP", x = ., value = TRUE)
   ),
-  # 并行计算准备。
   # 获取Agoop原始数据。
   tar_target(
     agoop_raw,
@@ -77,17 +76,23 @@ list(
     agoop_raw_dt_size,
     nrow(agoop_raw)
   ),
+  # 奄美地理范围矩形。
+  tar_target(
+    amami_bbox,
+    st_bbox(amami)
+  ),
+  # 目标数据。
   tar_target(
     agoop_amami,
     agoop_raw %>%
       # 删除奄美大岛及附近岛屿之外的点。
       filter(
-        latitude > st_bbox(amami)["ymin"], latitude < st_bbox(amami)["ymax"],
-        longitude > st_bbox(amami)["xmin"], longitude < st_bbox(amami)["xmax"]
+        latitude > amami_bbox["ymin"], latitude < amami_bbox["ymax"],
+        longitude > amami_bbox["xmin"], longitude < amami_bbox["xmax"]
       ) %>%
       # Conclusion: most dailyid start at 0 and end at 24. Can only keep the dailyid with min start time <= 22 and max end time >= 4.
       # Keep trajectory points between 4 and 22 everyday.
-      filter(hour <= 22, hour >= 4) %>%
+      filter(hour <= 23, hour >= 4) %>%
       # Make date time.
       mutate(time = as_datetime(
         paste(
@@ -107,7 +112,7 @@ list(
       group_by(dailyid) %>%
       mutate(n_hour = length(unique(hour))) %>%
       ungroup() %>%
-      filter(n_hour > 8) %>%
+      filter(n_hour >= 4) %>%
       select(-n_hour) %>%
       # 根据时间进行重采样，每个人每10分钟仅保留时间最早的一个数据点。
       mutate(minute_step = substr(sprintf("%02i", minute), 1, 1)) %>%
@@ -142,12 +147,11 @@ list(
       st_as_sf(
         coords = c("longitude", "latitude"), crs = 4326, agr = "constant"
       ) %>%
+      st_transform(6668) %>%
       # 判断各个轨迹点所属地点。
       mutate(
-        loc_id = loc$loc_id[as.numeric(st_intersects(., loc))]
+        loc_id = loc$loc_id[as.numeric(st_intersects(., loc))],
         loc_id = case_when(is.na(loc_id) ~ "r", TRUE ~ loc_id)
-      ) %>%
-      # 加入对应地点面积。
-      left_join(loc, by = "loc_id")
+      )
   )
 )
