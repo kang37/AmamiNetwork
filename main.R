@@ -1,7 +1,7 @@
 # Preparation ----
 pacman::p_load(
   lubridate, dplyr, dbscan, sf, tmap, mapview, stringi, showtext, tmap,
-  purrr, ggplot2, tidyr, RColorBrewer, targets
+  purrr, ggplot2, patchwork, tidyr, RColorBrewer, targets
 )
 showtext_auto()
 
@@ -12,7 +12,8 @@ tar_load(amami)
 tar_load(loc)
 
 # 对每个地点，计算其包含的轨迹点个数、涉及的人数。
-loc_smry <- agoop_amami %>%
+# Bug: 后面有同名变量。
+loc_smry_1 <- agoop_amami %>%
   st_drop_geometry() %>%
   group_by(loc_id, source) %>%
   summarise(
@@ -22,7 +23,7 @@ loc_smry <- agoop_amami %>%
   )
 
 plt_loc_smry <- function(tar_var) {
-  loc_smry_proc <- loc_smry %>%
+  loc_smry_proc <- loc_smry_1 %>%
     pivot_wider(
       id_cols = loc_id,
       names_from = source, values_from = all_of(tar_var), values_fill = 0
@@ -78,15 +79,15 @@ loc_smry <- left_join(
   agoop_amami %>%
     st_drop_geometry() %>%
     # 先计算每个DailyID的地点滞留时间。
-    group_by(source, qua, dailyid, loc_id, area) %>%
+    group_by(source, qua, dailyid, loc_id, loc_area) %>%
     summarise(
       loc_dur_stay =
         as.numeric(difftime(max(time), min(time), units = "mins"))  + 10,
       .groups = "drop"
     ) %>%
-    mutate(loc_dur_stay_per_area = loc_dur_stay / area) %>%
+    mutate(loc_dur_stay_per_area = loc_dur_stay / loc_area) %>%
     # 再计算中位数。
-    group_by(source, qua, loc_id, area) %>%
+    group_by(source, qua, loc_id, loc_area) %>%
     summarise(
       mid_loc_dur_stay = median(loc_dur_stay),
       mid_loc_dur_stay_per_area = median(loc_dur_stay_per_area),
@@ -94,7 +95,7 @@ loc_smry <- left_join(
     ),
   # 其他统计指标。
   event %>%
-    group_by(source, qua, loc_id, area) %>%
+    group_by(source, qua, loc_id, loc_area) %>%
     # 删除非定义地点的数据。
     filter(loc_id != "r") %>%
     summarise(
@@ -105,11 +106,11 @@ loc_smry <- left_join(
       dailyid_num = length(unique(dailyid)),
       .groups = "drop"
     ) %>%
-    mutate(dailyid_num_per_area = dailyid_num / area),
-  by = c("source", "qua", "loc_id", "area")
+    mutate(dailyid_num_per_area = dailyid_num / loc_area),
+  by = c("source", "qua", "loc_id", "loc_area")
 ) %>%
   filter(loc_id != "r") %>%
-  left_join(loc %>% select(-area), by = "loc_id") %>%
+  left_join(loc %>% select(-loc_area), by = "loc_id") %>%
   st_as_sf(sf_column_name = "geometry")
 # 漏洞：计算中的一些问题：按照这样的方法统计，得到的是每个季度在各个地点停留的、按照客源区分的总人数。是否需要除以纳入计算的天数，以得到平均每天的滞留人数呢？从目的考虑，未必，因为目的是要看哪些地方滞留人数和滞留时间有差异。虽然不比考虑除以时间，但是可以考虑除以面积。
 
@@ -132,14 +133,6 @@ od <- event %>%
   select(-loc_id, -event_id)
 
 # General description ----
-# 作图展示原始数据点的分布。
-tm_shape(agoop_amami) +
-  tm_dots(size = 0.01, col = "red", alpha = 0.3, palette="div") +
-  tm_facets(by = "qua", along = "source")
-
-# 不同客源的轨迹点数。
-table(agoop_amami$source)
-
 # 每个人每天有几个记录点？
 agoop_amami %>%
   st_drop_geometry() %>%
@@ -152,29 +145,52 @@ agoop_amami %>%
 # 每个月有多少人，本地和外地人分别多少？
 agoop_amami %>%
   st_drop_geometry() %>%
-  group_by(month, source) %>%
+  group_by(source, qua, month) %>%
   summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
   ggplot() +
-  geom_col(aes(month, dailyid_num, fill = source)) +
-  facet_wrap(.~ source, scales = "free")
-# 每个季度有多少人？
-agoop_amami %>%
-  st_drop_geometry() %>%
-  group_by(qua, source) %>%
-  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
-  ggplot() +
-  geom_col(aes(qua, dailyid_num, fill = source)) +
-  facet_wrap(.~ source, scales = "free")
+  geom_col(aes(month, dailyid_num, fill = qua)) +
+  scale_fill_manual(
+    breaks = as.character(1:4),
+    values = c("#FFB7C5", "#7FFFD4", "#FF7B54", "#A8DADC")
+  ) +
+  scale_x_continuous(breaks = 1:12, labels = 1:12) +
+  facet_wrap(.~ source) +
+  labs(x = "Month", y = "Numbe of daily ID") +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    panel.grid.major = element_blank()
+  )
 
 # 分客源分季度下，每个人每天滞留地点数量。
+# 分图方案。
+lapply(
+  list("local", "tourist", c("local", "tourist")),
+  function(x) {
+    agoop_amami %>%
+      st_drop_geometry() %>%
+      filter(source %in% x) %>%
+      group_by(source, qua, dailyid) %>%
+      summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
+      ggplot() +
+      geom_histogram(aes(loc_id_num), col = "white", binwidth = 1) +
+      theme_bw() +
+      lims(x = c(0, 20)) +
+      facet_wrap(.~ qua, scales = "free_y", nrow = 1)
+  }
+) %>%
+  Reduce("/", .)
+# 同图方案。
 agoop_amami %>%
   st_drop_geometry() %>%
   group_by(source, qua, dailyid) %>%
   summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
   ggplot() +
-  geom_histogram(aes(loc_id_num), col = "white", binwidth = 1) +
+  geom_histogram(aes(loc_id_num, fill = source), col = "white", binwidth = 1) +
   theme_bw() +
-  facet_grid(source ~ qua, scales = "free_y")
+  facet_wrap(.~ qua, scales = "free_y", nrow = 1) +
+  labs(x = "Location number", y = "Daily ID number")
+
 # 每个柱子中占比较多的是哪些具体地点？
 agoop_amami %>%
   st_drop_geometry() %>%
@@ -301,7 +317,7 @@ node <- data.frame(Id = node$loc_id) %>%
 gephi_data <- od %>%
   group_by(source, qua, origin, destination) %>%
   summarise(flow = n(), .groups = "drop") %>%
-  split.data.frame(qua)
+  split.data.frame(.$qua)
 
 # 导出边。
 map2(
