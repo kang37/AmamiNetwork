@@ -149,7 +149,7 @@ plt_loc_smry <- function(tar_var) {
     ) +
     scale_color_gradient(low = "darkgreen", high = "orange") +
     theme_bw() +
-    labs(col = "Tourist/Local", size = "Track point\nnumber")
+    labs(col = "Tourist/Local\nquartile", size = "Track point\nnumber")
 }
 # 作图：各地点轨迹点数。
 png(
@@ -204,7 +204,7 @@ rbind(
 # 分客源分季度下，每个人每天滞留地点数量。
 # 分图方案。
 lapply(
-  list("local", "tourist", c("local", "tourist")),
+  list(c("local", "tourist"), "local", "tourist"),
   function(x) {
     agoop_amami %>%
       st_drop_geometry() %>%
@@ -214,8 +214,9 @@ lapply(
       ggplot() +
       geom_histogram(aes(loc_id_num), col = "white", binwidth = 1) +
       theme_bw() +
-      lims(x = c(0, 20)) +
-      facet_wrap(.~ qua, scales = "free_y", nrow = 1)
+      facet_wrap(.~ qua, scales = "free_y", nrow = 1) +
+      labs(x = "Location number", y = "Daily ID count") +
+      lims(x = c(0, 15))
   }
 ) %>%
   Reduce("/", .)
