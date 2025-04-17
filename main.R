@@ -6,7 +6,7 @@ pacman::p_load(
 showtext_auto()
 
 # 重新运行tar_make()需要花大约40分钟。
-tar_make()
+# tar_make()
 tar_load(agoop_amami)
 tar_load(amami)
 tar_load(loc)
@@ -21,36 +21,6 @@ loc_smry_1 <- agoop_amami %>%
     dailyid_num = length(unique(dailyid)),
     .groups = "drop"
   )
-
-plt_loc_smry <- function(tar_var) {
-  loc_smry_proc <- loc_smry_1 %>%
-    pivot_wider(
-      id_cols = loc_id,
-      names_from = source, values_from = all_of(tar_var), values_fill = 0
-    ) %>%
-    mutate(vis_2_loc = tourist / local, num = tourist + local) %>%
-    mutate(
-      vis_2_loc_quan = cut(
-        vis_2_loc,
-        breaks = quantile(vis_2_loc, probs = seq(0, 1, 0.25), na.rm = TRUE),
-        labels = 1:4,
-        include.lowest = TRUE
-      )
-    ) %>%
-    left_join(loc, by = "loc_id") %>%
-    st_as_sf()
-  ggplot() +
-    geom_sf(data = amami) +
-    geom_sf(
-      data = st_centroid(loc_smry_proc),
-      aes(size = num, col = as.numeric(vis_2_loc_quan)), alpha = 0.5
-    ) +
-    scale_color_gradient(low = "blue", high = "red") +
-    theme_minimal() +
-    labs(col = "Vistor/Local")
-}
-plt_loc_smry("tp_num")
-plt_loc_smry("dailyid_num")
 
 # 对于每个人，计算其在每个路段的滞留时间和单位面积滞留时间。这里“路段”是指其按照时间顺序经过的时间-地段区间，例如，一个人的轨迹是1-3-2-r-2，则他所经过的路段包括4个定义地点和一个非定义地点（r）。
 event <- agoop_amami %>%
@@ -133,6 +103,64 @@ od <- event %>%
   select(-loc_id, -event_id)
 
 # General description ----
+# 地点图和原始数据分布，分成3部分：区位图，原始数据分布，各地点轨迹点数分布。
+# 第1部分：区位图在GIS中制作。
+# 第2部分：原始数据分布。
+# Bug: 只取一部分数据作图。
+png(
+  paste0("data_proc/re_map_", Sys.Date(), ".png"),
+  width = 1500, height = 1500, res = 300
+)
+set.seed(1234)
+ggplot() +
+  geom_sf(data = amami, col = "lightgrey") +
+  geom_sf(
+    data = st_jitter(sample_n(agoop_amami, size = 50000), 0.001),
+    size = 0.1, col = "black", alpha = 0.8
+  ) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank())
+dev.off()
+
+# 第3部分：各地点轨迹点数分布。
+# 函数：各地点轨迹点数或人数，并显示游客和本地人比例作图。
+plt_loc_smry <- function(tar_var) {
+  loc_smry_proc <- loc_smry_1 %>%
+    pivot_wider(
+      id_cols = loc_id,
+      names_from = source, values_from = all_of(tar_var), values_fill = 0
+    ) %>%
+    mutate(vis_2_loc = tourist / local, num = tourist + local) %>%
+    mutate(
+      vis_2_loc_quan = cut(
+        vis_2_loc,
+        breaks = quantile(vis_2_loc, probs = seq(0, 1, 0.25), na.rm = TRUE),
+        labels = 1:4,
+        include.lowest = TRUE
+      )
+    ) %>%
+    left_join(loc, by = "loc_id") %>%
+    st_as_sf()
+  ggplot() +
+    geom_sf(data = amami) +
+    geom_sf(
+      data = st_centroid(loc_smry_proc),
+      aes(size = num, col = as.numeric(vis_2_loc_quan)), alpha = 0.5
+    ) +
+    scale_color_gradient(low = "darkgreen", high = "orange") +
+    theme_bw() +
+    labs(col = "Tourist/Local", size = "Track point\nnumber")
+}
+# 作图：各地点轨迹点数。
+png(
+  paste0("data_proc/re_tp_num_", Sys.Date(), ".png"),
+  width = 1800, height = 1500, res = 300
+)
+plt_loc_smry("tp_num")
+dev.off()
+# 作图：各地点人数。
+plt_loc_smry("dailyid_num")
+
 # 每个人每天有几个记录点？
 agoop_amami %>%
   st_drop_geometry() %>%
