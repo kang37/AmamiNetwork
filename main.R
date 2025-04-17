@@ -171,10 +171,19 @@ agoop_amami %>%
   theme_bw()
 
 # 每个月有多少人，本地和外地人分别多少？
-agoop_amami %>%
-  st_drop_geometry() %>%
-  group_by(source, qua, month) %>%
-  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+rbind(
+  # 分季节和客源人数。
+  agoop_amami %>%
+    st_drop_geometry() %>%
+    group_by(source, qua, month) %>%
+    summarise(dailyid_num = length(unique(dailyid)), .groups = "drop"),
+  # 分季节不分客源人数。
+  agoop_amami %>%
+    st_drop_geometry() %>%
+    group_by(qua, month) %>%
+    summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+    mutate(source = "all")
+) %>%
   ggplot() +
   geom_col(aes(month, dailyid_num, fill = qua)) +
   scale_fill_manual(
@@ -182,11 +191,13 @@ agoop_amami %>%
     values = c("#FFB7C5", "#7FFFD4", "#FF7B54", "#A8DADC")
   ) +
   scale_x_continuous(breaks = 1:12, labels = 1:12) +
-  facet_wrap(.~ source) +
-  labs(x = "Month", y = "Numbe of daily ID") +
+  facet_wrap(.~ source, labeller = labeller(source = c(
+    "all" = "All", "local" = "Local", "tourist" = "Tourist"
+  ))) +
+  labs(x = "Month", y = "Numbe of daily ID", fill = "Quarter") +
   theme_bw() +
   theme(
-    legend.position = "none",
+    legend.position = "top",
     panel.grid.major = element_blank()
   )
 
