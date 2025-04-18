@@ -1,0 +1,26 @@
+---
+title: "网络输出结果分析"
+author: "Kang"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+基于谢输出的Gephi结果，进行各module各节点的网络指标汇总分析。
+
+```{r}
+lapply(
+  c("indegree", "outdegree", "degree",
+    "weighted_indegree", "weighted_outdegree", "weighted_degree",
+    "eccentricity", "closness_centrality", "harmonicclosness_centrality",
+    "betweeness_centrality", "pageranks", "clustering", "eigen_centrality"),
+  function(z) {
+    ggplot(combined_data %>% filter(top_mod == 1)) +
+      geom_boxplot(aes(as.character(modularity_class), get(z))) +
+      facet_grid(season ~ vis_src, scales = "free_y") +
+      theme_bw() +
+      labs(x = "Modularity class", y = z)
+  }
+)
+```
