@@ -48,12 +48,8 @@ ref_module_node_prop <- combined_data %>%
   group_by(vis_src, season) %>%
   mutate(prop_node = n_node / sum(n_node) * 100) %>%
   ungroup() %>%
-  arrange(vis_src, season, -n_node) %>%
-  # 先排除和图上module节点百分比不一致的数据。
-  filter(
-    !(vis_src == "tourist" & season %in% c(1:3)),
-    !(vis_src == "local_tourist" & season %in% c(2, 3))
-  )
+  arrange(vis_src, season, -n_node)
+
 # 输出数据。
 write.csv(ref_module_node_prop, "data_raw/ref_module_node_prop.csv")
 
@@ -70,8 +66,8 @@ combined_data <- combined_data %>%
 # 作图。
 lapply(
   c("indegree", "outdegree", "degree",
-    # "weighted_indegree", "weighted_outdegree", "weighted_degree",
-    # "eccentricity", "closness_centrality", "harmonicclosness_centrality",
+    "weighted_indegree", "weighted_outdegree", "weighted_degree",
+    "eccentricity", "closness_centrality", "harmonicclosness_centrality",
     "betweeness_centrality", "pageranks", "clustering", "eigen_centrality"),
   function(z) {
     ggplot(combined_data %>% filter(top_mod == 1)) +
