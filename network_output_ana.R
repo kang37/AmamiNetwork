@@ -1,3 +1,4 @@
+# Node index ----
 # 加载包。
 library(stringr)
 
@@ -77,3 +78,16 @@ lapply(
       labs(x = "Modularity class", y = z)
   }
 )
+
+# Network index ----
+net_index <- readxl::read_xlsx(
+  "data_raw/gephi_output_net.xlsx", sheet = "Sheet3"
+) %>%
+  pivot_longer(
+    cols = paste0("qua_", 1:4), names_to = "qua", values_to = "index_val"
+  )
+
+ggplot(net_index) +
+  geom_col(aes(qua, index_val)) +
+  facet_grid(net_index ~ vis_src, scales = "free") +
+  theme_bw()
