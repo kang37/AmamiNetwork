@@ -104,11 +104,22 @@ od <- event %>%
 
 # General description ----
 # 地点图和原始数据分布，分成3部分：区位图，原始数据分布，各地点轨迹点数分布。
-# 第1部分：区位图在GIS中制作。
+# 第1部分：区位图。
+png(
+  paste0("data_proc/re_area_", Sys.Date(), ".png"),
+  width = 1500, height = 1500, res = 300
+)
+ggplot() +
+  geom_sf(data = amami, col = "lightgrey") +
+  geom_sf(data = loc) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank())
+dev.off()
+
 # 第2部分：原始数据分布。
 # Bug: 只取一部分数据作图。
 png(
-  paste0("data_proc/re_map_", Sys.Date(), ".png"),
+  paste0("data_proc/re_tp_raw_", Sys.Date(), ".png"),
   width = 1500, height = 1500, res = 300
 )
 set.seed(1234)
