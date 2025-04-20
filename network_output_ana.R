@@ -54,12 +54,12 @@ ref_module_node_prop <- combined_data %>%
 # 输出数据。
 write.csv(ref_module_node_prop, "data_raw/ref_module_node_prop.csv")
 
-# 筛选前6个最重要的module。
+# 筛选前3个最重要的module。
 combined_data <- combined_data %>%
   left_join(
     ref_module_node_prop %>%
       group_by(vis_src, season) %>%
-      slice_head(n = 6) %>%
+      slice_head(n = 3) %>%
       mutate(top_mod = 1),
     by = c("vis_src", "season", "modularity_class")
   )
