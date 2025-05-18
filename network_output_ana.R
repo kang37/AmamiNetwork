@@ -107,6 +107,34 @@ net_index %>%
   )) +
   labs(x = "四半期", y = "Index value")
 
+# Node index ----
+# 直方图。
+lapply(
+  c("indegree", "closness_centrality", "betweeness_centrality"),
+  function(index_x) {
+    combined_data %>%
+      filter(vis_src != "local_tourist") %>%
+      ggplot() +
+      geom_histogram(aes(get(index_x))) +
+      facet_grid(vis_src ~ season) +
+      theme_bw() +
+      labs(x = index_x)
+  }
+)
+# 密度图。
+lapply(
+  c("indegree", "closness_centrality", "betweeness_centrality"),
+  function(index_x) {
+    combined_data %>%
+      filter(vis_src != "local_tourist") %>%
+      ggplot() +
+      geom_density(aes(get(index_x))) +
+      facet_grid(vis_src ~ season) +
+      theme_bw() +
+      labs(x = index_x)
+  }
+)
+
 # Abstract subnet ----
 # 根据特定指标，提取各客源各季节点最多的模块中最重要的节点并作图。
 plt_abs_subnet <- function(vis_src_x, index_x) {
@@ -196,7 +224,7 @@ plt_abs_subnet <- function(vis_src_x, index_x) {
     filter(!c(x_from == x_to & y_from == y_to))
 
   # 作图。
-  ggplot() +
+  top_points_plt <- ggplot() +
     # 添加箭头。
     geom_curve(
       # Bug: 只做本地人。
@@ -235,6 +263,9 @@ plt_abs_subnet <- function(vis_src_x, index_x) {
     ) +
     scale_linewidth_continuous(range = c(0.5, 3)) +
     labs(x = NULL, y = NULL)
+
+  # 返回结果。
+  return(list(top_points, top_points_plt))
 }
 # plt_abs_subnet("local_tourist", "weighted_indegree")
 
@@ -243,10 +274,11 @@ abs_subnet_comb <-
   expand.grid(
     c("local", "tourist", "local_tourist"),
     c(
-      "indegree", "outdegree", "degree",
-      "weighted_indegree", "weighted_outdegree", "weighted_degree",
-      "eccentricity", "closness_centrality",
-      "harmonicclosness_centrality", "betweeness_centrality"
+      "indegree", "closness_centrality", "betweeness_centrality"
+      # "outdegree", "degree",
+      # "weighted_indegree", "weighted_outdegree", "weighted_degree",
+      # "eccentricity",
+      # "harmonicclosness_centrality"
     )
   ) %>%
   rename_with(~ c("vis_src", "index"))
@@ -259,7 +291,7 @@ map2(
       paste0("data_proc/abs_subnet/", x, "_", y, ".png"),
       width = 1500, height = 1500, res = 200
     )
-    plt_abs_subnet(x, y) %>% print()
+    plt_abs_subnet(x, y)[[2]] %>% print()
     dev.off()
   }
 )
