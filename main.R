@@ -215,7 +215,7 @@ rbind(
 # 分客源分季度下，每个人每天滞留地点数量。
 # 分图方案。
 lapply(
-  list(c("local", "tourist"), "local", "tourist"),
+  list("local", "tourist"),
   function(x) {
     agoop_amami %>%
       st_drop_geometry() %>%
@@ -385,19 +385,6 @@ map2(
       )
   }
 )
-# 导出边：分季节，不分客源。
-lapply(
-  c(1:4),
-  function(x) {
-    gephi_data[[x]] %>%
-      select(origin, destination, flow) %>%
-      rename_with(~ c("Source", "Target", "Weight")) %>%
-      write.csv(
-        ., paste0("data_proc/od_edge_", x, "_loc_tour_", Sys.Date(), ".csv"),
-        row.names = FALSE
-      )
-  }
-)
 
 # 导出节点：分季节和客源。
 map2(
@@ -410,20 +397,6 @@ map2(
       ) %>%
       write.csv(
         ., paste0("data_proc/od_node_", x, "_", y, "_", Sys.Date(), ".csv"),
-        row.names = FALSE
-      )
-  }
-)
-# 导出节点：分季节，不分客源。
-lapply(
-  c(1:4),
-  function(x) {
-    node %>%
-      filter(
-        Id %in% unique(c(gephi_data[[x]]$origin, gephi_data[[x]]$destination))
-      ) %>%
-      write.csv(
-        ., paste0("data_proc/od_node_", x, "_loc_tour_", Sys.Date(), ".csv"),
         row.names = FALSE
       )
   }
