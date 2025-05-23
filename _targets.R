@@ -3,8 +3,8 @@ library(targets)
 # 加载程序包。
 tar_option_set(packages = c(
   "jmastats", "lubridate", "openxlsx", "stringr", "dplyr", "tidyr", "ggplot2",
-  "geojsonsf", "sf", "tmap", "parallel", "showtext", "patchwork", "jpmesh",
-  "mapview", "data.table", "purrr"
+  "qgisprocess", "geojsonsf", "sf", "tmap", "parallel", "showtext", "patchwork",
+  "jpmesh", "mapview", "data.table", "purrr"
 ))
 
 # 构建变量。
@@ -43,11 +43,11 @@ list(
   # 自定义目标地点。
   tar_target(
     loc,
-    st_read(dsn = "data_raw/loc_def", layer = "loc_def") %>%
+    st_read("data_raw/loc/loc.shp") %>%
       # 计算每个定义地点的面积，单位为平方米。
-      mutate(
-        loc_id = as.character(loc_id), loc_area = st_area(.) %>% as.numeric()
-      ) %>%
+      select(loc_id = OBJECTID) %>%
+      st_make_valid() %>%
+      mutate(loc_area = st_area(.) %>% as.numeric()) %>%
       st_transform(6668)
   ),
   # Agoop ----
@@ -62,7 +62,6 @@ list(
   # 获取Agoop原始数据。
   tar_target(
     agoop_raw,
-    # 读取Agoop数据。
     lapply(agoop_file, fread) %>%
       bind_rows() %>%
       filter(accuracy <= 100) %>%
@@ -83,75 +82,106 @@ list(
   ),
   # 目标数据。
   tar_target(
-    agoop_amami,
-    agoop_raw %>%
-      # 删除奄美大岛及附近岛屿之外的点。
-      filter(
-        latitude > amami_bbox["ymin"], latitude < amami_bbox["ymax"],
-        longitude > amami_bbox["xmin"], longitude < amami_bbox["xmax"]
-      ) %>%
-      # Conclusion: most dailyid start at 0 and end at 24. Can only keep the dailyid with min start time <= 22 and max end time >= 4.
-      # Keep trajectory points between 4 and 22 everyday.
-      filter(hour <= 23, hour >= 4) %>%
-      # Make date time.
-      mutate(time = as_datetime(
-        paste(
-          paste(year, month, day, sep = "-"),
-          paste(hour, minute, "00", sep = "-"),
-          sep = " "
-        )
-      )) %>%
-      # If 2 points at the same time, keep only one with higher accuracy.
-      arrange(dailyid, time, accuracy) %>%
-      group_by(dailyid, time) %>%
-      mutate(position_conflict_id = row_number()) %>%
-      ungroup() %>%
-      filter(position_conflict_id == 1) %>%
-      select(-position_conflict_id) %>%
-      # 删除活动时间范围较小的dailyID：记录分布少于8个小时的删除。
-      group_by(dailyid) %>%
-      mutate(n_hour = length(unique(hour))) %>%
-      ungroup() %>%
-      filter(n_hour >= 4) %>%
-      select(-n_hour) %>%
-      # 根据时间进行重采样，每个人每10分钟仅保留时间最早的一个数据点。
-      mutate(minute_step = substr(sprintf("%02i", minute), 1, 1)) %>%
-      arrange(dailyid, time) %>%
-      group_by(dailyid, hour, minute_step) %>%
-      mutate(minute_step_filt = row_number()) %>%
-      ungroup() %>%
-      filter(minute_step_filt == 1) %>%
-      select(-minute_step_filt, -minute_step) %>%
-      # 漏洞：排序的时候应以dailyid为优先，否则dailyid会被分散到不相邻的行中。
-      arrange(month, day, dailyid, time) %>%
-      # 增加客源和季度信息。
-      mutate(
-        source = case_when(
-          home_citycode %in% tar_city_code ~ "local", TRUE ~ "tourist"
-        ),
-        qua = case_when(
-          month <= 3 ~ "1", month <= 6 ~ "2",
-          month <= 9 ~ "3", month <= 12 ~ "4"
-        )
-      ) %>%
-      # 增加记录点编号。
-      arrange(time, dailyid) %>%
-      mutate(res_id = row_number()) %>%
-      # 加入来源县市名称。
-      left_join(
-        pref_city_code,
-        by = c("home_prefcode" = "prefcode", "home_citycode" = "citycode")
-      ) %>%
-      rename("home_prefname" = "prefname", "home_cityname" = "cityname") %>%
-      # 转化成sf数据。
-      st_as_sf(
-        coords = c("longitude", "latitude"), crs = 4326, agr = "constant"
-      ) %>%
-      st_transform(6668) %>%
-      # 判断各个轨迹点所属地点。
-      mutate(
-        loc_id = loc$loc_id[as.numeric(st_intersects(., loc))],
-        loc_id = case_when(is.na(loc_id) ~ "r", TRUE ~ loc_id)
+    agoop_amami_tar,
+    {
+      res <- agoop_raw %>%
+        # 删除奄美大岛及附近岛屿之外的点。
+        filter(
+          latitude > amami_bbox["ymin"], latitude < amami_bbox["ymax"],
+          longitude > amami_bbox["xmin"], longitude < amami_bbox["xmax"]
+        ) %>%
+        # Conclusion: most dailyid start at 0 and end at 24. Can only keep the dailyid with min start time <= 22 and max end time >= 4.
+        # Keep trajectory points between 4 and 22 everyday.
+        filter(hour <= 23, hour >= 4) %>%
+        # Make date time.
+        mutate(time = as_datetime(
+          paste(
+            paste(year, month, day, sep = "-"),
+            paste(hour, minute, "00", sep = "-"),
+            sep = " "
+          )
+        )) %>%
+        # If 2 points at the same time, keep only one with higher accuracy.
+        arrange(dailyid, time, accuracy) %>%
+        group_by(dailyid, time) %>%
+        mutate(position_conflict_id = row_number()) %>%
+        ungroup() %>%
+        filter(position_conflict_id == 1) %>%
+        select(-position_conflict_id) %>%
+        # 删除活动时间范围较小的dailyID：记录分布少于8个小时的删除。
+        group_by(dailyid) %>%
+        mutate(n_hour = length(unique(hour))) %>%
+        ungroup() %>%
+        filter(n_hour >= 8) %>%
+        select(-n_hour) %>%
+        # 根据时间进行重采样，每个人每10分钟仅保留时间最早的一个数据点。
+        mutate(minute_step = substr(sprintf("%02i", minute), 1, 1)) %>%
+        arrange(dailyid, time) %>%
+        group_by(dailyid, hour, minute_step) %>%
+        mutate(minute_step_filt = row_number()) %>%
+        ungroup() %>%
+        filter(minute_step_filt == 1) %>%
+        select(-minute_step_filt, -minute_step) %>%
+        # 漏洞：排序的时候应以dailyid为优先，否则dailyid会被分散到不相邻的行中。
+        arrange(dailyid, month, day, time) %>%
+        # 增加客源和季度信息。
+        mutate(
+          source = case_when(
+            home_citycode %in% tar_city_code ~ "local", TRUE ~ "tourist"
+          ),
+          qua = case_when(
+            month <= 3 ~ "1", month <= 6 ~ "2",
+            month <= 9 ~ "3", month <= 12 ~ "4"
+          )
+        ) %>%
+        # 增加记录点编号。
+        arrange(dailyid, time) %>%
+        mutate(res_id = row_number()) %>%
+        # 加入来源县市名称。
+        left_join(
+          pref_city_code,
+          by = c("home_prefcode" = "prefcode", "home_citycode" = "citycode")
+        ) %>%
+        rename("home_prefname" = "prefname", "home_cityname" = "cityname") %>%
+        # 转化成sf数据。
+        st_as_sf(
+          coords = c("longitude", "latitude"), crs = 4326, agr = "constant"
+        ) %>%
+        st_transform(6668)
+      # 写出筛选后的奄美Agoop数据。因长列名会被缩短，日语会变乱码，因此只输出部分列。
+      write_sf(
+        select(res, res_id), "data_proc/agoop_amami_tar/agoop_amami_tar.shp"
       )
+      res
+    }
+  ),
+  # 将地点信息加入轨迹点数据。
+  tar_target(
+    agoop_amami_loc_pre,
+    {
+      res_mid <- qgis_run_algorithm(
+        "native:joinattributesbylocation",
+        INPUT = "data_proc/agoop_amami_tar/agoop_amami_tar.shp",
+        JOIN = "data_raw/loc/loc.shp",
+        # 操作intersects。
+        PREDICATE = 0,
+        JOIN_FIELDS = "OBJECTID",
+        OUTPUT = "data_proc/agoop_amami_loc_pre/agoop_amami_loc_pre.shp"
+      )
+      res_fn <-
+        st_as_sf(res_mid$OUTPUT) %>%
+        tibble() %>%
+        select(-geometry) %>%
+        rename(loc_id = OBJECTID)
+      res_fn
+    }
+  ),
+  # 将轨迹点数据加回奄美数据中。
+  tar_target(
+    agoop_amami,
+    agoop_amami_tar %>%
+      left_join(agoop_amami_loc_pre, by = "res_id") %>%
+      relocate(res_id, .before = 1) %>%
+      relocate(loc_id, .after = hour)
   )
 )
