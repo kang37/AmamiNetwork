@@ -9,7 +9,13 @@ showtext_auto()
 # tar_make()
 tar_load(agoop_amami)
 tar_load(amami)
-tar_load(loc)
+# 自定义目标地点。
+loc <- st_read("data_raw/loc/loc.shp") %>%
+  # 计算每个定义地点的面积，单位为平方米。
+  select(loc_id = OBJECTID, spa_group) %>%
+  st_make_valid() %>%
+  mutate(loc_area = st_area(.) %>% as.numeric()) %>%
+  st_transform(6668)
 
 # 对每个地点，计算其包含的轨迹点个数、涉及的人数。
 # Bug: 后面有同名变量。
@@ -380,7 +386,7 @@ map2(
       select(origin, destination, flow) %>%
       rename_with(~ c("Source", "Target", "Weight")) %>%
       write.csv(
-        ., paste0("data_proc/od_edge_", x, "_", y, "_", Sys.Date(), ".csv"),
+        ., paste0("data_proc/od_edge_", y, "_", x, ".csv"),
         row.names = FALSE
       )
   }
@@ -396,7 +402,7 @@ map2(
         Id %in% unique(c(gephi_data[[x]]$origin, gephi_data[[x]]$destination))
       ) %>%
       write.csv(
-        ., paste0("data_proc/od_node_", x, "_", y, "_", Sys.Date(), ".csv"),
+        ., paste0("data_proc/od_node_", y, "_", x, ".csv"),
         row.names = FALSE
       )
   }
