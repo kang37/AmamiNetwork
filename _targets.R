@@ -152,17 +152,16 @@ list(
       res_mid <- qgis_run_algorithm(
         "native:joinattributesbylocation",
         INPUT = "data_proc/agoop_amami_tar/agoop_amami_tar.shp",
-        JOIN = "data_raw/loc/loc.shp",
+        JOIN = "data_raw/loc/loc62.shp",
         # 操作intersects。
         PREDICATE = 0,
-        JOIN_FIELDS = "OBJECTID",
+        JOIN_FIELDS = "loc_id",
         OUTPUT = "data_proc/agoop_amami_loc_pre/agoop_amami_loc_pre.shp"
       )
       res_fn <-
         st_as_sf(res_mid$OUTPUT) %>%
         tibble() %>%
-        select(-geometry) %>%
-        rename(loc_id = OBJECTID)
+        select(-geometry)
       res_fn
     }
   ),
