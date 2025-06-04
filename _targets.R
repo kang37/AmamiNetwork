@@ -40,16 +40,6 @@ list(
       st_union() %>%
       st_sf()
   ),
-  # 自定义目标地点。
-  tar_target(
-    loc,
-    st_read("data_raw/loc/loc.shp") %>%
-      # 计算每个定义地点的面积，单位为平方米。
-      select(loc_id = OBJECTID) %>%
-      st_make_valid() %>%
-      mutate(loc_area = st_area(.) %>% as.numeric()) %>%
-      st_transform(6668)
-  ),
   # Agoop ----
   # Get all file names.
   tar_target(
