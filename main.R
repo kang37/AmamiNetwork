@@ -5,14 +5,12 @@ pacman::p_load(
 )
 showtext_auto()
 
-# 重新运行tar_make()需要花大约40分钟。
 # tar_make()
 tar_load(agoop_amami)
 tar_load(amami)
 # 自定义目标地点。
-loc <- st_read("data_raw/loc/loc.shp") %>%
+loc <- st_read("data_raw/loc/loc62.shp") %>%
   # 计算每个定义地点的面积，单位为平方米。
-  select(loc_id = OBJECTID, spa_group) %>%
   st_make_valid() %>%
   mutate(loc_area = st_area(.) %>% as.numeric()) %>%
   st_transform(6668)
@@ -110,7 +108,7 @@ od <- event %>%
 
 # General description ----
 # 地点图和原始数据分布，分成3部分：区位图，原始数据分布，各地点轨迹点数分布。
-# 第1部分：区位图。
+# 第1部分：区位图，包含地点。
 png(
   paste0("data_proc/re_area_", Sys.Date(), ".png"),
   width = 1500, height = 1500, res = 300
@@ -188,19 +186,11 @@ agoop_amami %>%
   theme_bw()
 
 # 每个月有多少人，本地和外地人分别多少？
-rbind(
-  # 分季节和客源人数。
-  agoop_amami %>%
-    st_drop_geometry() %>%
-    group_by(source, qua, month) %>%
-    summarise(dailyid_num = length(unique(dailyid)), .groups = "drop"),
-  # 分季节不分客源人数。
-  agoop_amami %>%
-    st_drop_geometry() %>%
-    group_by(qua, month) %>%
-    summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
-    mutate(source = "all")
-) %>%
+# 分季节和客源人数。
+agoop_amami %>%
+  st_drop_geometry() %>%
+  group_by(source, qua, month) %>%
+  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
   ggplot() +
   geom_col(aes(month, dailyid_num, fill = qua)) +
   scale_fill_manual(
@@ -237,16 +227,6 @@ lapply(
   }
 ) %>%
   Reduce("/", .)
-# 同图方案。
-agoop_amami %>%
-  st_drop_geometry() %>%
-  group_by(source, qua, dailyid) %>%
-  summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
-  ggplot() +
-  geom_histogram(aes(loc_id_num, fill = source), col = "white", binwidth = 1) +
-  theme_bw() +
-  facet_wrap(.~ qua, scales = "free_y", nrow = 1) +
-  labs(x = "Location number", y = "Daily ID number")
 
 # 每个柱子中占比较多的是哪些具体地点？
 agoop_amami %>%

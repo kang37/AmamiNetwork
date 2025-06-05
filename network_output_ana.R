@@ -12,12 +12,13 @@ file_paths <- list.files(
 parse_file_info <- function(file_path) {
   # 提取文件名：去除路径和扩展名。
   file_name <- tools::file_path_sans_ext(basename(file_path))
+  file_name <- gsub("gephi_node_export_", "", file_name)
   # 使用正则表达式提取季节和群体。
-  matches <- str_match(file_name, "(\\d+)_(\\w+)")
+  matches <- str_match(file_name, "(\\w+)_(\\d+)")
   # 返回解析结果。
   tibble(
-    season = as.integer(matches[1, 2]),
-    group = matches[1, 3],
+    season = as.integer(matches[1, 3]),
+    vis_src = matches[1, 2],
     file_path = file_path
   )
 }
@@ -27,7 +28,7 @@ file_info <- map_dfr(file_paths, parse_file_info)
 
 # 读取并合并所有CSV文件。
 combined_data <- pmap(
-  list(file_info$file_path, file_info$group, file_info$season),
+  list(file_info$file_path, file_info$vis_src, file_info$season),
   function(x, y, z) {
     read.csv(x) %>%
       tibble() %>%
@@ -41,15 +42,6 @@ combined_data <- pmap(
     ~ gsub("([a-z])(centrality)", "\\1_\\2", .x),
     matches("centrality$")
   )
-
-# 统计各季节各客源各module的节点数比例。
-ref_module_node_prop <- combined_data %>%
-  group_by(vis_src, season, modularity_class) %>%
-  summarise(n_node = n(), .groups = "drop") %>%
-  group_by(vis_src, season) %>%
-  mutate(prop_node = n_node / sum(n_node) * 100) %>%
-  ungroup() %>%
-  arrange(vis_src, season, -n_node)
 
 # 输出数据。
 write.csv(ref_module_node_prop, "data_raw/ref_module_node_prop.csv")
