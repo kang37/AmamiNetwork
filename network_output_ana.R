@@ -1,6 +1,7 @@
 # Node index ----
 # 加载包。
 library(stringr)
+library(readxl)
 
 # 获取所有csv文件路径。
 file_paths <- list.files(
@@ -43,33 +44,94 @@ combined_data <- pmap(
     matches("centrality$")
   )
 
-# 输出数据。
-write.csv(ref_module_node_prop, "data_raw/ref_module_node_prop.csv")
+# Supply POI ----
+# 定义不同可达时间段的权重。
+poi_access_weight <-
+  setNames(sapply(seq(5, 30, 5), function(x) 1/x), seq(5, 30, 5))
 
-# 筛选前3个最重要的module。
-combined_data <- combined_data %>%
-  left_join(
-    ref_module_node_prop %>%
-      group_by(vis_src, season) %>%
-      slice_head(n = 3) %>%
-      mutate(top_mod = 1),
-    by = c("vis_src", "season", "modularity_class")
-  )
+# POI表格路径。
+poi_file_path <- "data_raw/loc_poi_overlay.xlsx"
 
-# 作图。
-lapply(
-  c("indegree", "outdegree", "degree",
-    "weighted_indegree", "weighted_outdegree", "weighted_degree",
-    "eccentricity", "closness_centrality", "harmonicclosness_centrality",
-    "betweeness_centrality", "pageranks", "clustering", "eigen_centrality"),
-  function(z) {
-    ggplot(combined_data %>% filter(top_mod == 1)) +
-      geom_boxplot(aes(as.character(modularity_class), get(z))) +
-      facet_grid(season ~ vis_src, scales = "free_y") +
-      theme_bw() +
-      labs(x = "Modularity class", y = z)
-  }
-)
+# 函数：处理单个POI表格。
+proc_poi_sheet <- function(sheet_name) {
+  # 读取表格第1行：包含POI类型和列名。
+  row_first <- read_excel(poi_file_path, sheet = sheet_name, n_max = 1)
+  poi_type <- names(row_first)[[2]]
+  # 读取表格主要数据。
+  df <- read_excel(poi_file_path, sheet = sheet_name, skip = 1)[, -2] %>%
+    rename_with(~ c(
+      "loc_id",
+      paste(rep(c("walk", "drive"), each = 6), row_first[, 3:14], sep = "_")
+    ))
+
+  # 加权计算可达性指标：给行人赋予更高权重。
+  walk_score <- as.matrix(select(df, contains("walk"))) %*% poi_access_weight
+  drive_score <- as.matrix(select(df, contains("drive"))) %*% poi_access_weight
+  tibble(
+    loc_id = df$loc_id,
+    access = as.numeric(0.6 * walk_score + 0.4 * drive_score)
+  ) %>%
+    rename_with(~ c("loc_id", poi_type))
+}
+
+# 处理所有POI可达性表格，并合并结果。
+loc_poi_access <- lapply(excel_sheets(poi_file_path), proc_poi_sheet) %>%
+  reduce(left_join, by = "loc_id") %>%
+  rename_with(~ tolower(.x))
+
+# Demand and supply ----
+loc_dem_sup <- combined_data %>%
+  left_join(loc_poi_access, by = c("id" = "loc_id")) %>%
+  mutate(
+    local_ds_gov = government / indegree,
+    local_ds_edu = education / indegree,
+    local_ds_amen = public_amenities / degree,
+    tourist_ds_tour = tourism / indegree,
+    # Bug: 游客和本地人交通是混合在一起的，因此应该计算总中心度。
+    tourist_ds_mobility = mobility / betweeness_centrality
+  ) %>%
+  left_join(loc, by = c("id" = "loc_id")) %>%
+  # Bug.
+  mutate(across(
+    c(local_ds_gov, local_ds_edu, local_ds_amen, tourist_ds_tour, tourist_ds_mobility),
+    ~ ifelse(is.infinite(.x), 0, .x)
+  )) %>%
+  group_by(vis_src, season) %>%
+  mutate(across(
+    c(local_ds_gov, local_ds_edu, local_ds_amen, tourist_ds_tour, tourist_ds_mobility),
+    ~ .x/max(.x)
+  )) %>%
+  ungroup() %>%
+  st_as_sf()
+
+# 本地人的市政需求。
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "local") %>%
+  ggplot(aes(spa_group, local_ds_gov)) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_wrap(.~ season, nrow = 1)
+
+ggplot() +
+  geom_sf(data = amami, col = "white") +
+  geom_sf(
+    data = loc_dem_sup %>% filter(vis_src == "local") %>% st_centroid(),
+    aes(size = local_ds_gov, col = spa_group), alpha = 0.5
+  ) +
+  theme_bw() +
+  facet_wrap(.~ season, nrow = 1)
+
+# 旅客的旅游需求。
+loc_dem_sup %>%
+  filter(vis_src == "tourist") %>%
+  ggplot(aes(spa_group, tourist_ds_tour)) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_wrap(.~ season, nrow = 1)
+
 
 # Network index ----
 net_index <- readxl::read_xlsx(
