@@ -40,8 +40,13 @@ combined_data <- pmap(
   rename_with(~ tolower(gsub("\\.", "_", .x))) %>%
   # 更改列名：在小写字母和"centrality"之间加下划线。
   rename_with(
-    ~ gsub("([a-z])(centrality)", "\\1_\\2", .x),
+    ~ gsub("([a-z]centrality)", "", .x),
     matches("centrality$")
+  ) %>%
+  rename(
+    "harmonic" = "harmonicclosnes",
+    "betweeness" = "betweenes",
+    "closeness" = "closnes"
   )
 
 # Supply POI ----
