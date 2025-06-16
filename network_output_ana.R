@@ -88,36 +88,59 @@ loc_poi_access <- lapply(excel_sheets(poi_file_path), proc_poi_sheet) %>%
 loc_dem_sup <- combined_data %>%
   left_join(loc_poi_access, by = c("id" = "loc_id")) %>%
   mutate(
+    # 对于本地人。
     local_ds_gov = government / indegree,
     local_ds_edu = education / indegree,
     local_ds_amen = public_amenities / degree,
+    local_ds_health = health / degree,
+    local_ds_retail = retail / harmonic,
+    local_ds_accomfood = ac / indegree,
+    # 对于游客。
+    tourist_ds_accomfood = ac / indegree,
     tourist_ds_tour = tourism / indegree,
+    tourist_ds_amen = public_amenities / degree,
     # Bug: 游客和本地人交通是混合在一起的，因此应该计算总中心度。
-    tourist_ds_mobility = mobility / betweeness_centrality
+    tourist_ds_mobility = mobility / betweeness
   ) %>%
   left_join(loc, by = c("id" = "loc_id")) %>%
   # Bug.
   mutate(across(
-    c(local_ds_gov, local_ds_edu, local_ds_amen, tourist_ds_tour, tourist_ds_mobility),
-    ~ ifelse(is.infinite(.x), 0, .x)
+    c(local_ds_gov:tourist_ds_mobility),
+    ~ ifelse(is.infinite(.x), 1, .x)
   )) %>%
   group_by(vis_src, season) %>%
   mutate(across(
-    c(local_ds_gov, local_ds_edu, local_ds_amen, tourist_ds_tour, tourist_ds_mobility),
-    ~ .x/max(.x)
+    c(local_ds_gov:tourist_ds_mobility), ~ .x/max(.x, na.rm = TRUE)
   )) %>%
   ungroup() %>%
   st_as_sf()
 
-# 本地人的市政需求。
+# 本地人的各项需求。
 loc_dem_sup %>%
   st_drop_geometry() %>%
   filter(vis_src == "local") %>%
-  ggplot(aes(spa_group, local_ds_gov)) +
+  select(spa_group, season, contains("local_")) %>%
+  pivot_longer(
+    cols = c(contains("local_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  ggplot(aes(spa_group, ds_val)) +
   geom_boxplot() +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
-  facet_wrap(.~ season, nrow = 1)
+  facet_grid(ds_cat ~ season)
+# 对数尺度。
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "local") %>%
+  select(spa_group, season, contains("local_")) %>%
+  pivot_longer(
+    cols = c(contains("local_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  ggplot(aes(spa_group, log(ds_val))) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(ds_cat ~ season)
 
 ggplot() +
   geom_sf(data = amami, col = "white") +
@@ -128,15 +151,32 @@ ggplot() +
   theme_bw() +
   facet_wrap(.~ season, nrow = 1)
 
-# 旅客的旅游需求。
+# 旅客的各项需求。
 loc_dem_sup %>%
+  st_drop_geometry() %>%
   filter(vis_src == "tourist") %>%
-  ggplot(aes(spa_group, tourist_ds_tour)) +
+  select(spa_group, season, contains("tourist_")) %>%
+  pivot_longer(
+    cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  ggplot(aes(spa_group, ds_val)) +
   geom_boxplot() +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
-  facet_wrap(.~ season, nrow = 1)
-
+  facet_grid(ds_cat ~ season)
+# 对数尺度。
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "tourist") %>%
+  select(spa_group, season, contains("tourist_")) %>%
+  pivot_longer(
+    cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  ggplot(aes(spa_group, log(ds_val))) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(ds_cat ~ season)
 
 # Network index ----
 net_index <- readxl::read_xlsx(
