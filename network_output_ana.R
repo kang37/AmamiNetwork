@@ -121,6 +121,7 @@ loc_dem_sup <- combined_data %>%
   ungroup() %>%
   st_as_sf()
 
+## Local ----
 # 本地人的各项需求。
 png(
   paste0("data_proc/ds_local_raw_", Sys.Date(), ".png"),
@@ -207,6 +208,7 @@ loc_dem_sup %>%
   )
 dev.off()
 
+## Tourist ----
 # 旅客的各项需求。
 # 原始数据。
 png(
@@ -281,6 +283,93 @@ loc_dem_sup %>%
   select(spa_group, season, contains("tourist_")) %>%
   pivot_longer(
     cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  group_by(spa_group, season, ds_cat) %>%
+  summarise(ds_val = median(ds_val), .groups = "drop") %>%
+  ggplot(aes(spa_group, ds_val)) +
+  geom_col() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(
+    ds_cat ~ season, scale = "free_y",
+    labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
+  )
+dev.off()
+
+## All source ----
+# 原始数据。
+png(
+  paste0("data_proc/ds_allsrc_raw_", Sys.Date(), ".png"),
+  width = 2000, height = 800, res = 300
+)
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "allsrc") %>%
+  select(spa_group, season, contains("allsrc_")) %>%
+  pivot_longer(
+    cols = c(contains("allsrc_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  ggplot(aes(spa_group, ds_val)) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(ds_cat ~ season)
+dev.off()
+
+# 对数尺度。
+png(
+  paste0("data_proc/ds_allsrc_log_", Sys.Date(), ".png"),
+  width = 2000, height = 800, res = 300
+)
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "allsrc") %>%
+  select(spa_group, season, contains("allsrc_")) %>%
+  pivot_longer(
+    cols = c(contains("allsrc_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  ggplot(aes(spa_group, log(ds_val))) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(ds_cat ~ season)
+dev.off()
+
+# 平均数。
+png(
+  paste0("data_proc/ds_allsrc_mean_", Sys.Date(), ".png"),
+  width = 2000, height = 800, res = 300
+)
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "allsrc") %>%
+  select(spa_group, season, contains("allsrc_")) %>%
+  pivot_longer(
+    cols = c(contains("allsrc_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  group_by(spa_group, season, ds_cat) %>%
+  summarise(ds_val = mean(ds_val), .groups = "drop") %>%
+  ggplot(aes(spa_group, ds_val)) +
+  geom_col() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(
+    ds_cat ~ season, scale = "free_y",
+    labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
+  )
+dev.off()
+
+# 中位数。
+png(
+  paste0("data_proc/ds_allsrc_mid_", Sys.Date(), ".png"),
+  width = 2000, height = 800, res = 300
+)
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "allsrc") %>%
+  select(spa_group, season, contains("allsrc_")) %>%
+  pivot_longer(
+    cols = c(contains("allsrc_")), names_to = "ds_cat", values_to = "ds_val"
   ) %>%
   group_by(spa_group, season, ds_cat) %>%
   summarise(ds_val = median(ds_val), .groups = "drop") %>%
