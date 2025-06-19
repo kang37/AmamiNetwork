@@ -89,33 +89,43 @@ loc_dem_sup <- combined_data %>%
   left_join(loc_poi_access, by = c("id" = "loc_id")) %>%
   mutate(
     # 对于本地人。
-    local_ds_gov = government / indegree,
-    local_ds_edu = education / indegree,
-    local_ds_amen = public_amenities / degree,
-    local_ds_health = health / degree,
-    local_ds_retail = retail / harmonic,
-    local_ds_accomfood = ac / indegree,
+    local_ds_edu = education / degree,
+    local_ds_gov = government/ degree,
+    local_ds_health = health / closeness,
+    local_ds_amen_close = public_amenities / closeness,
+    local_ds_amen_harmonic = public_amenities / harmonic,
+    local_ds_retail_close = retail / closeness,
+    local_ds_retail_harmonic = retail / harmonic,
     # 对于游客。
-    tourist_ds_accomfood = ac / indegree,
-    tourist_ds_tour = tourism / indegree,
-    tourist_ds_amen = public_amenities / degree,
-    # Bug: 游客和本地人交通是混合在一起的，因此应该计算总中心度。
-    tourist_ds_mobility = mobility / betweeness
+    tourist_ds_accomfood_degree = ac / degree,
+    tourist_ds_accomfood_close = ac / closeness,
+    tourist_ds_amen = public_amenities / closeness,
+    tourist_ds_retail_degree = retail / degree,
+    tourist_ds_retail_harmonic = retail / harmonic,
+    tourist_ds_tour_degree = tourism / degree,
+    tourist_ds_tour_close = tourism / closeness,
+    tourist_ds_tour_harmonic = tourism / harmonic,
+    # 对于所有人。
+    allsrc_ds_mobility = mobility / betweeness
   ) %>%
   left_join(loc, by = c("id" = "loc_id")) %>%
   # Bug.
   mutate(across(
-    c(local_ds_gov:tourist_ds_mobility),
+    c(local_ds_edu:allsrc_ds_mobility),
     ~ ifelse(is.infinite(.x), 1, .x)
   )) %>%
-  group_by(vis_src, season) %>%
+  group_by(vis_src) %>%
   mutate(across(
-    c(local_ds_gov:tourist_ds_mobility), ~ .x/max(.x, na.rm = TRUE)
+    c(local_ds_gov:allsrc_ds_mobility), ~ .x/max(.x, na.rm = TRUE)
   )) %>%
   ungroup() %>%
   st_as_sf()
 
 # 本地人的各项需求。
+png(
+  paste0("data_proc/ds_local_raw_", Sys.Date(), ".png"),
+  width = 2000, height = 3000, res = 300
+)
 loc_dem_sup %>%
   st_drop_geometry() %>%
   filter(vis_src == "local") %>%
@@ -128,7 +138,13 @@ loc_dem_sup %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
   facet_grid(ds_cat ~ season)
+dev.off()
+
 # 对数尺度。
+png(
+  paste0("data_proc/ds_local_log_", Sys.Date(), ".png"),
+  width = 2000, height = 3000, res = 300
+)
 loc_dem_sup %>%
   st_drop_geometry() %>%
   filter(vis_src == "local") %>%
@@ -141,17 +157,62 @@ loc_dem_sup %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
   facet_grid(ds_cat ~ season)
+dev.off()
 
-ggplot() +
-  geom_sf(data = amami, col = "white") +
-  geom_sf(
-    data = loc_dem_sup %>% filter(vis_src == "local") %>% st_centroid(),
-    aes(size = local_ds_gov, col = spa_group), alpha = 0.5
-  ) +
+# 平均数。
+png(
+  paste0("data_proc/ds_local_mean_", Sys.Date(), ".png"),
+  width = 2000, height = 3000, res = 300
+)
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "local") %>%
+  select(spa_group, season, contains("local_")) %>%
+  pivot_longer(
+    cols = c(contains("local_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  group_by(spa_group, season, ds_cat) %>%
+  summarise(ds_val = mean(ds_val), .groups = "drop") %>%
+  ggplot(aes(spa_group, ds_val)) +
+  geom_col() +
   theme_bw() +
-  facet_wrap(.~ season, nrow = 1)
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(
+    ds_cat ~ season, scale = "free_y",
+    labeller = labeller(.rows = function(x) str_remove(x, "^local_ds_"))
+  )
+dev.off()
+
+# 中位数。
+png(
+  paste0("data_proc/ds_local_mid_", Sys.Date(), ".png"),
+  width = 2000, height = 3000, res = 300
+)
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "local") %>%
+  select(spa_group, season, contains("local_")) %>%
+  pivot_longer(
+    cols = c(contains("local_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  group_by(spa_group, season, ds_cat) %>%
+  summarise(ds_val = median(ds_val), .groups = "drop") %>%
+  ggplot(aes(spa_group, ds_val)) +
+  geom_col() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(
+    ds_cat ~ season, scale = "free_y",
+    labeller = labeller(.rows = function(x) str_remove(x, "^local_ds_"))
+  )
+dev.off()
 
 # 旅客的各项需求。
+# 原始数据。
+png(
+  paste0("data_proc/ds_tourist_raw_", Sys.Date(), ".png"),
+  width = 2000, height = 3500, res = 300
+)
 loc_dem_sup %>%
   st_drop_geometry() %>%
   filter(vis_src == "tourist") %>%
@@ -164,7 +225,13 @@ loc_dem_sup %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
   facet_grid(ds_cat ~ season)
+dev.off()
+
 # 对数尺度。
+png(
+  paste0("data_proc/ds_tourist_log_", Sys.Date(), ".png"),
+  width = 2000, height = 3500, res = 300
+)
 loc_dem_sup %>%
   st_drop_geometry() %>%
   filter(vis_src == "tourist") %>%
@@ -177,6 +244,55 @@ loc_dem_sup %>%
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
   facet_grid(ds_cat ~ season)
+dev.off()
+
+# 平均数。
+png(
+  paste0("data_proc/ds_tourist_mean_", Sys.Date(), ".png"),
+  width = 2000, height = 3500, res = 300
+)
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "tourist") %>%
+  select(spa_group, season, contains("tourist_")) %>%
+  pivot_longer(
+    cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  group_by(spa_group, season, ds_cat) %>%
+  summarise(ds_val = mean(ds_val), .groups = "drop") %>%
+  ggplot(aes(spa_group, ds_val)) +
+  geom_col() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(
+    ds_cat ~ season, scale = "free_y",
+    labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
+  )
+dev.off()
+
+# 中位数。
+png(
+  paste0("data_proc/ds_tourist_mid_", Sys.Date(), ".png"),
+  width = 2000, height = 3500, res = 300
+)
+loc_dem_sup %>%
+  st_drop_geometry() %>%
+  filter(vis_src == "tourist") %>%
+  select(spa_group, season, contains("tourist_")) %>%
+  pivot_longer(
+    cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
+  ) %>%
+  group_by(spa_group, season, ds_cat) %>%
+  summarise(ds_val = median(ds_val), .groups = "drop") %>%
+  ggplot(aes(spa_group, ds_val)) +
+  geom_col() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(
+    ds_cat ~ season, scale = "free_y",
+    labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
+  )
+dev.off()
 
 # Network index ----
 net_index <- readxl::read_xlsx(
