@@ -195,7 +195,7 @@ agoop_amami %>%
   geom_col(aes(month, dailyid_num, fill = qua)) +
   scale_fill_manual(
     breaks = as.character(1:4),
-    values = c("#FFB7C5", "#7FFFD4", "#FF7B54", "#A8DADC")
+    values = c("#D3A9C5", "#8CD3D6", "#F0B29D", "#7BABDD")
   ) +
   scale_x_continuous(breaks = 1:12, labels = 1:12) +
   facet_wrap(.~ source, labeller = labeller(source = c(
@@ -383,6 +383,37 @@ map2(
       ) %>%
       write.csv(
         ., paste0("data_proc/od_node_", y, "_", x, ".csv"),
+        row.names = FALSE
+      )
+  }
+)
+
+# 导出边：分季节不分客源。
+lapply(
+  c(1:4),
+  function(x) {
+    gephi_data[[x]] %>%
+      group_by(qua, origin, destination) %>%
+      summarise(flow = sum(flow), .groups = "drop") %>%
+      select(origin, destination, flow) %>%
+      rename_with(~ c("Source", "Target", "Weight")) %>%
+      write.csv(
+        ., paste0("data_proc/od_edge_allsrc_", x, ".csv"),
+        row.names = FALSE
+      )
+  }
+)
+
+# 导出节点：分季节不分客源。
+lapply(
+  c(1:4),
+  function(x) {
+    node %>%
+      filter(
+        Id %in% unique(c(gephi_data[[x]]$origin, gephi_data[[x]]$destination))
+      ) %>%
+      write.csv(
+        ., paste0("data_proc/od_node_allsrc_", x, ".csv"),
         row.names = FALSE
       )
   }
