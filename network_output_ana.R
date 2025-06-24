@@ -530,32 +530,26 @@ ggplot() +
 dev.off()
 
 # Network index ----
-net_index <- readxl::read_xlsx(
-  "data_raw/gephi_output_net.xlsx", sheet = "Sheet3"
-) %>%
-  pivot_longer(
-    cols = paste0("qua_", 1:4), names_to = "qua", values_to = "index_val"
-  )
+net_index <- read.csv("data_raw/net_index.csv") %>%
+  tibble()
 
 # 只分析本地人和外地人的话。
 net_index %>%
-  filter(vis_src != "local+tourist") %>%
+  pivot_longer(
+    cols = -c(vis_src, season), names_to = "index_cat", values_to = "index_val"
+  ) %>%
   ggplot() +
-  geom_col(aes(qua, index_val)) +
+  geom_col(aes(season, index_val)) +
   facet_grid(
-    net_index ~ vis_src, scales = "free",
+    index_cat ~ vis_src, scales = "free",
     labeller = labeller(vis_src = as_labeller(
-      c("local" = "Local", "tourist" = "Tourist")
+      c("local" = "Local", "tourist" = "Tourist", "all_src" = "All visitor")
     ),
-    net_index = as_labeller(
+    index_cat = as_labeller(
       c("Average Clustering Coefficient" = "Average\nClustering Coefficient")
     ))
   ) +
-  theme_bw() +
-  scale_x_discrete(labels = c(
-    "qua_1" = "1", "qua_2" = "2", "qua_3" = "3", "qua_4" = "4"
-  )) +
-  labs(x = "四半期", y = "Index value")
+  theme_bw()
 
 # Node index ----
 # 直方图。
