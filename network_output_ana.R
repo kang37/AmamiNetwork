@@ -2,6 +2,8 @@
 # 加载包。
 library(stringr)
 library(readxl)
+library(scatterpie)
+library(ggsci)
 
 # 获取所有csv文件路径。
 file_paths <- list.files(
@@ -85,41 +87,110 @@ loc_poi_access <- lapply(excel_sheets(poi_file_path), proc_poi_sheet) %>%
   rename_with(~ tolower(.x))
 
 # Demand and supply ----
-loc_dem_sup <- combined_data %>%
-  left_join(loc_poi_access, by = c("id" = "loc_id")) %>%
-  mutate(
-    # 对于本地人。
-    local_ds_edu = education / degree,
-    local_ds_gov = government/ degree,
-    local_ds_health = health / closeness,
-    local_ds_amen_close = public_amenities / closeness,
-    local_ds_amen_harmonic = public_amenities / harmonic,
-    local_ds_retail_close = retail / closeness,
-    local_ds_retail_harmonic = retail / harmonic,
-    # 对于游客。
-    tourist_ds_accomfood_degree = ac / degree,
-    tourist_ds_accomfood_close = ac / closeness,
-    tourist_ds_amen = public_amenities / closeness,
-    tourist_ds_retail_degree = retail / degree,
-    tourist_ds_retail_harmonic = retail / harmonic,
-    tourist_ds_tour_degree = tourism / degree,
-    tourist_ds_tour_close = tourism / closeness,
-    tourist_ds_tour_harmonic = tourism / harmonic,
-    # 对于所有人。
-    allsrc_ds_mobility = mobility / betweeness
+# 分客源-季节的各地点各类供需比率。
+loc_dem_sup <-
+  list(
+    # 本地人各项需求。
+    combined_data %>%
+      left_join(loc_poi_access, by = c("id" = "loc_id")) %>%
+      filter(vis_src == "local") %>%
+      mutate(
+        ds_edu = education / degree,
+        ds_gov = government/ degree,
+        ds_health = health / closeness,
+        ds_amen_close = public_amenities / closeness,
+        ds_amen_harmonic = public_amenities / harmonic,
+        ds_retail_close = retail / closeness,
+        ds_retail_harmonic = retail / harmonic
+      ) %>%
+      # 将无限大的结果转化为0：对应供给非0而需求为0的地点-季节。
+      mutate(across(contains("ds_"), ~ ifelse(is.infinite(.x), 1, .x))) %>%
+      # 对每个地点的供需比率进行标准化。
+      group_by(vis_src, id) %>%
+      mutate(across(contains("ds_"), ~ .x/max(.x, na.rm = TRUE))) %>%
+      ungroup() %>%
+      # 对一对多的供需配对，计算供需比率加权平均值。
+      mutate(
+        # 更强调“平均可达性”，harmonic处理偏远点，用于微调。
+        ds_amen_mix = ds_amen_close * 0.7 + ds_amen_harmonic * 0.3,
+        # 更强调“平均可达性”，harmonic处理偏远点，用于微调。
+        ds_retail_mix = ds_retail_close * 0.7 + ds_retail_harmonic * 0.3
+      ) %>%
+      # 转化为长数据。
+      select(vis_src, id, season, contains("ds")) %>%
+      select(
+        -c(ds_amen_close, ds_amen_harmonic, ds_retail_close, ds_retail_harmonic)
+      ) %>%
+      pivot_longer(
+        cols = contains("ds_"), names_to = "ds_cat", values_to = "ds_val"
+      ),
+    # 游客各项需求。
+    combined_data %>%
+      left_join(loc_poi_access, by = c("id" = "loc_id")) %>%
+      filter(vis_src == "tourist") %>%
+      mutate(
+        ds_accomfood_degree = ac / degree,
+        ds_accomfood_close = ac / closeness,
+        ds_amen = public_amenities / closeness,
+        ds_retail_degree = retail / degree,
+        ds_retail_harmonic = retail / harmonic,
+        ds_tour_degree = tourism / degree,
+        ds_tour_close = tourism / closeness,
+        ds_tour_harmonic = tourism / harmonic,
+      ) %>%
+      # 将无限大的结果转化为0：对应供给非0而需求为0的地点-季节。
+      mutate(across(contains("ds_"), ~ ifelse(is.infinite(.x), 1, .x))) %>%
+      # 对每个地点的供需比率进行标准化。
+      group_by(vis_src, id) %>%
+      mutate(across(contains("ds_"), ~ .x/max(.x, na.rm = TRUE))) %>%
+      ungroup() %>%
+      # 对一对多的供需配对，计算供需比率加权平均值。
+      mutate(
+        # 游客热度主导，closeness补充反映“是否方便到达”。
+        ds_accomfood_mix = ds_accomfood_degree * 0.7 + ds_accomfood_close * 0.3,
+        # 热度主导，harmonic保留广覆盖性。
+        ds_retail_mix = ds_retail_degree * 0.7 + ds_retail_harmonic * 0.3,
+        # 热度主导 + 中心性支持 + 修正远点。
+        ds_tour_mix =
+          ds_tour_degree * 0.5 + ds_tour_close * 0.3 + ds_tour_harmonic * 0.2
+      ) %>%
+      # 转化为长数据。
+      select(vis_src, id, season, contains("ds")) %>%
+      select(-c(
+        ds_accomfood_degree, ds_accomfood_close,
+        ds_retail_degree, ds_retail_harmonic,
+        ds_tour_degree, ds_tour_close, ds_tour_harmonic
+      )) %>%
+      pivot_longer(
+        cols = contains("ds_"), names_to = "ds_cat", values_to = "ds_val"
+      ),
+    # 本地人-游客共通需求。
+    combined_data %>%
+      left_join(loc_poi_access, by = c("id" = "loc_id")) %>%
+      filter(vis_src == "allsrc") %>%
+      mutate(ds_mobility = mobility / betweeness) %>%
+      # 将无限大的结果转化为0：对应供给非0而需求为0的地点-季节。
+      mutate(ds_mobility = ifelse(is.infinite(ds_mobility), 1, ds_mobility)) %>%
+      # 对每个地点的供需比率进行标准化。
+      mutate(ds_mobility = ds_mobility/max(ds_mobility, na.rm = TRUE)) %>%
+      # 转化为长数据。
+      select(vis_src, id, season, contains("ds")) %>%
+      pivot_longer(
+        cols = contains("ds_"), names_to = "ds_cat", values_to = "ds_val"
+      )
   ) %>%
-  left_join(loc, by = c("id" = "loc_id")) %>%
-  # Bug.
-  mutate(across(
-    c(local_ds_edu:allsrc_ds_mobility),
-    ~ ifelse(is.infinite(.x), 1, .x)
-  )) %>%
-  group_by(vis_src) %>%
-  mutate(across(
-    c(local_ds_gov:allsrc_ds_mobility), ~ .x/max(.x, na.rm = TRUE)
-  )) %>%
-  ungroup() %>%
-  st_as_sf()
+  bind_rows() %>%
+  # 获得经纬度信息。
+  left_join(st_centroid(loc), by = c("id" = "loc_id")) %>%
+  st_as_sf() %>%
+  mutate(long = st_coordinates(.)[, 1], lat = st_coordinates(.)[, 2]) %>%
+  st_drop_geometry()
+
+# 挑选出各客源-季节-需求中，供需比率最低的地点。
+loc_dem_sup_min <- loc_dem_sup %>%
+  group_by(vis_src, season, ds_cat) %>%
+  slice_min(order_by = ds_val, n = 5) %>%
+  ungroup()
 
 ## Local ----
 # 本地人的各项需求。
@@ -381,6 +452,81 @@ loc_dem_sup %>%
     ds_cat ~ season, scale = "free_y",
     labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
   )
+dev.off()
+
+## Map ----
+# 函数：用于画带有供需饼图的地图。
+plt_ds_map <- function(vis_src_x) {
+  plt_data <- loc_dem_sup_min %>%
+    filter(vis_src == vis_src_x) %>%
+    mutate(ds_val_fill = 1) %>%
+    pivot_wider(
+      id_cols = c(id, season, long, lat),
+      names_from = ds_cat, values_from = ds_val_fill, values_fill = 0
+    ) %>%
+    mutate(radius = 0.02)
+
+  ggplot() +
+    geom_sf(data = amami, fill = "white") +
+    geom_sf(data = st_centroid(loc), size = 1, col = "darkgrey", alpha = 0.8) +
+    geom_scatterpie(
+      data = plt_data,
+      aes(x = long, y = lat, r = radius),
+      cols= grep("^ds_", names(plt_data), value = TRUE),
+      linewidth = 0.1, color = "white", alpha=0.9
+    ) +
+    scale_fill_npg() +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 90),
+      panel.background = element_rect(fill = scales::alpha("#e6f4ff", 0.5)),
+      panel.grid = element_line(color = "white")
+    ) +
+    facet_wrap(.~ season, nrow = 1)
+}
+
+# 作图。
+# 本地人供需。
+png(
+  paste0("data_proc/ds_map_local_2", Sys.Date(), ".png"),
+  width = 3500, height = 1000, res = 300
+)
+plt_ds_map("local")
+dev.off()
+
+# 游客供需。
+png(
+  paste0("data_proc/ds_map_tourist_", Sys.Date(), ".png"),
+  width = 3500, height = 1000, res = 300
+)
+plt_ds_map("tourist")
+dev.off()
+
+# 如果混合起来呢？
+plt_data <- loc_dem_sup_min %>%
+  mutate(ds_val_fill = 1) %>%
+  pivot_wider(
+    id_cols = c(vis_src, id, season, long, lat),
+    names_from = ds_cat, values_from = ds_val_fill, values_fill = 0
+  ) %>%
+  mutate(radius = 0.02)
+
+png(
+  paste0("data_proc/ds_map_all_", Sys.Date(), ".png"),
+  width = 3500, height = 3000, res = 300
+)
+ggplot() +
+  geom_sf(data = amami) +
+  geom_scatterpie(
+    data = plt_data,
+    aes(x = long, y = lat, r = radius),
+    cols= grep("^ds_", names(plt_data), value = TRUE),
+    linewidth = 0.1, color = "white", alpha=0.9
+  ) +
+  scale_fill_npg() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  facet_grid(vis_src ~ season)
 dev.off()
 
 # Network index ----
