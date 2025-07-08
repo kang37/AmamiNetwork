@@ -37,6 +37,10 @@ list(
       rename(citycode = N03_007) %>%
       # cities (villages) in Amamioshima island
       filter(citycode %in% tar_city_code) %>%
+      # 仅保留奄美大岛和加计吕麻岛及其周边小岛屿。
+      mutate(ymax = purrr::map_dbl(geometry, ~ st_bbox(.x)[["ymax"]])) %>%
+      filter(ymax >= 28.06969) %>%
+      select(-ymax) %>%
       st_union() %>%
       st_sf()
   ),
