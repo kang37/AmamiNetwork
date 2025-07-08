@@ -163,20 +163,6 @@ loc_dem_sup <-
       )) %>%
       pivot_longer(
         cols = contains("ds_"), names_to = "ds_cat", values_to = "ds_val"
-      ),
-    # 本地人-游客共通需求。
-    combined_data %>%
-      left_join(loc_poi_access, by = c("id" = "loc_id")) %>%
-      filter(vis_src == "allsrc") %>%
-      mutate(ds_mobility = mobility / betweeness) %>%
-      # 将无限大的结果转化为0：对应供给非0而需求为0的地点-季节。
-      mutate(ds_mobility = ifelse(is.infinite(ds_mobility), 1, ds_mobility)) %>%
-      # 对每个地点的供需比率进行标准化。
-      mutate(ds_mobility = ds_mobility/max(ds_mobility, na.rm = TRUE)) %>%
-      # 转化为长数据。
-      select(vis_src, id, season, contains("ds")) %>%
-      pivot_longer(
-        cols = contains("ds_"), names_to = "ds_cat", values_to = "ds_val"
       )
   ) %>%
   bind_rows() %>%
@@ -191,6 +177,34 @@ loc_dem_sup_min <- loc_dem_sup %>%
   group_by(vis_src, season, ds_cat) %>%
   slice_min(order_by = ds_val, n = 5) %>%
   ungroup()
+
+# 条形图：分服务类型和客源，不分季节，比较各组团供给比率。
+lapply(
+  c("local", "tourist"),
+  function(x) {
+    loc_dem_sup %>%
+      filter(vis_src == x) %>%
+      ggplot() +
+      geom_histogram(aes(ds_val)) +
+      facet_grid(ds_cat ~ spa_group) +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 90))
+  }
+)
+
+# 密度图：分服务类型和客源，不分季节，比较各组团供给比率。
+lapply(
+  c("local", "tourist"),
+  function(x) {
+    loc_dem_sup %>%
+      filter(vis_src == x) %>%
+      ggplot() +
+      geom_density(aes(ds_val)) +
+      facet_grid(ds_cat ~ spa_group) +
+      theme_bw() +
+      theme(axis.text.x = element_text(angle = 90))
+  }
+)
 
 ## Local ----
 # 本地人的各项需求。
@@ -513,7 +527,7 @@ plt_data <- loc_dem_sup_min %>%
 
 png(
   paste0("data_proc/ds_map_all_", Sys.Date(), ".png"),
-  width = 3500, height = 3000, res = 300
+  width = 3500, height = 2500, res = 300
 )
 ggplot() +
   geom_sf(data = amami) +
