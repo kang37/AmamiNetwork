@@ -175,7 +175,7 @@ loc_dem_sup <-
 # 挑选出各客源-季节-需求中，供需比率最低的地点。
 loc_dem_sup_min <- loc_dem_sup %>%
   group_by(vis_src, season, ds_cat) %>%
-  slice_min(order_by = ds_val, n = 5) %>%
+  slice_min(order_by = ds_val, n = 10) %>%
   ungroup()
 
 # 条形图：分服务类型和客源，不分季节，比较各组团供给比率。
@@ -541,6 +541,51 @@ ggplot() +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90)) +
   facet_grid(vis_src ~ season)
+dev.off()
+
+# 分客源-季节下各供给率低地点对比。
+ggplot(filter(loc_dem_sup_min, vis_src == "local")) +
+  geom_col(aes(id, ds_val)) +
+  facet_grid(ds_cat ~ season) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+ggplot(filter(loc_dem_sup_min, vis_src == "tourist")) +
+  geom_col(aes(id, ds_val)) +
+  facet_grid(ds_cat ~ season) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+
+# 分客源-季节下各供给率低地点对比地图。
+png(
+  paste0("data_proc/ds_size_local_", Sys.Date(), ".png"),
+  width = 3500, height = 2500, res = 300
+)
+ggplot() +
+  geom_sf(data = amami) +
+  geom_sf(
+    data = loc_dem_sup_min %>%
+      st_as_sf(coords = c("long", "lat"), crs = 4326) %>%
+      filter(vis_src == "local"),
+    aes(size = ds_val), alpha = 0.5, col = "red"
+  ) +
+  facet_grid(ds_cat ~ season) +
+  theme_bw()
+dev.off()
+
+png(
+  paste0("data_proc/ds_size_tourist_", Sys.Date(), ".png"),
+  width = 3500, height = 2500, res = 300
+)
+ggplot() +
+  geom_sf(data = amami) +
+  geom_sf(
+    data = loc_dem_sup_min %>%
+      st_as_sf(coords = c("long", "lat"), crs = 4326) %>%
+      filter(vis_src == "tourist"),
+    aes(size = ds_val), alpha = 0.5, col = "red"
+  ) +
+  facet_grid(ds_cat ~ season) +
+  theme_bw()
 dev.off()
 
 # Network index ----
