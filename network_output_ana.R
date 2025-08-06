@@ -141,8 +141,11 @@ loc_dem_sup <-
       # 将无限大的结果转化为0：对应供给非0而需求为0的地点-季节。
       mutate(across(contains("ds_"), ~ ifelse(is.infinite(.x), 1, .x))) %>%
       # 对每个地点的供需比率进行标准化。
-      group_by(vis_src, id) %>%
-      mutate(across(contains("ds_"), ~ .x/max(.x, na.rm = TRUE))) %>%
+      group_by(vis_src) %>%
+      mutate(across(
+        contains("ds_"),
+        ~ (.x - min(.x, na.rm = T))/(max(.x, na.rm = T) - min(.x, na.rm = T))
+      )) %>%
       ungroup() %>%
       # 对一对多的供需配对，计算供需比率加权平均值。
       mutate(
@@ -176,8 +179,11 @@ loc_dem_sup <-
       # 将无限大的结果转化为0：对应供给非0而需求为0的地点-季节。
       mutate(across(contains("ds_"), ~ ifelse(is.infinite(.x), 1, .x))) %>%
       # 对每个地点的供需比率进行标准化。
-      group_by(vis_src, id) %>%
-      mutate(across(contains("ds_"), ~ .x/max(.x, na.rm = TRUE))) %>%
+      group_by(vis_src) %>%
+      mutate(across(
+        contains("ds_"),
+        ~ (.x - min(.x, na.rm = T))/(max(.x, na.rm = T) - min(.x, na.rm = T))
+      )) %>%
       ungroup() %>%
       # 对一对多的供需配对，计算供需比率加权平均值。
       mutate(
@@ -234,7 +240,7 @@ lapply(
     loc_dem_sup %>%
       filter(vis_src == x) %>%
       ggplot() +
-      geom_density(aes(ds_val)) +
+      geom_density(aes(log(ds_val))) +
       facet_grid(ds_cat ~ spa_group) +
       theme_bw() +
       theme(axis.text.x = element_text(angle = 90))
@@ -601,7 +607,8 @@ ggplot() +
     data = loc_dem_sup_min %>%
       st_as_sf(coords = c("long", "lat"), crs = 4326) %>%
       filter(vis_src == "local"),
-    aes(size = ds_val), alpha = 0.5, col = "red"
+    # aes(size = ds_val),
+    alpha = 0.5, col = "red"
   ) +
   facet_grid(ds_cat ~ season) +
   theme_bw()
@@ -617,7 +624,8 @@ ggplot() +
     data = loc_dem_sup_min %>%
       st_as_sf(coords = c("long", "lat"), crs = 4326) %>%
       filter(vis_src == "tourist"),
-    aes(size = ds_val), alpha = 0.5, col = "red"
+    # aes(size = ds_val),
+    alpha = 0.5, col = "red"
   ) +
   facet_grid(ds_cat ~ season) +
   theme_bw()
