@@ -1,3 +1,7 @@
+# 加载包 ----
+library(dplyr)
+library(ggplot2)
+
 # 图3 ----
 # 分群体-月份访问daily ID数。
 png(
