@@ -699,14 +699,21 @@ net_index %>%
   geom_col(aes(season, index_val)) +
   facet_grid(
     index_cat ~ vis_src, scales = "free",
-    labeller = labeller(vis_src = as_labeller(
-      c("local" = "Local", "tourist" = "Tourist", "all_src" = "All visitor")
-    ),
-    index_cat = as_labeller(
-      c("Average Clustering Coefficient" = "Average\nClustering Coefficient")
-    ))
+    labeller = labeller(
+      vis_src = as_labeller(
+        c("local" = "Local", "tourist" = "Tourist", "all_src" = "All visitor")
+      ),
+      index_cat = as_labeller(
+        function(x) {
+          x <- gsub("_", "\n", x)
+          x <- stringr::str_to_title(x)
+          gsub("Avg", "Average", x)
+        }
+      )
+    )
   ) +
-  theme_bw()
+  theme_bw() +
+  labs(x = "Season", y = "Index value")
 
 # Node index ----
 # 直方图。
