@@ -5,11 +5,15 @@ pacman::p_load(
 )
 showtext_auto()
 
-# 重新运行tar_make()需要花大约40分钟。
 # tar_make()
 tar_load(agoop_amami)
 tar_load(amami)
-tar_load(loc)
+# 自定义目标地点。
+loc <- st_read("data_raw/loc/loc62.shp") %>%
+  # 计算每个定义地点的面积，单位为平方米。
+  st_make_valid() %>%
+  mutate(loc_area = st_area(.) %>% as.numeric()) %>%
+  st_transform(6668)
 
 # 对每个地点，计算其包含的轨迹点个数、涉及的人数。
 # Bug: 后面有同名变量。
@@ -104,7 +108,7 @@ od <- event %>%
 
 # General description ----
 # 地点图和原始数据分布，分成3部分：区位图，原始数据分布，各地点轨迹点数分布。
-# 第1部分：区位图。
+# 第1部分：区位图，包含地点。
 png(
   paste0("data_proc/re_area_", Sys.Date(), ".png"),
   width = 1500, height = 1500, res = 300
@@ -182,24 +186,16 @@ agoop_amami %>%
   theme_bw()
 
 # 每个月有多少人，本地和外地人分别多少？
-rbind(
-  # 分季节和客源人数。
-  agoop_amami %>%
-    st_drop_geometry() %>%
-    group_by(source, qua, month) %>%
-    summarise(dailyid_num = length(unique(dailyid)), .groups = "drop"),
-  # 分季节不分客源人数。
-  agoop_amami %>%
-    st_drop_geometry() %>%
-    group_by(qua, month) %>%
-    summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
-    mutate(source = "all")
-) %>%
+# 分季节和客源人数。
+agoop_amami %>%
+  st_drop_geometry() %>%
+  group_by(source, qua, month) %>%
+  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
   ggplot() +
   geom_col(aes(month, dailyid_num, fill = qua)) +
   scale_fill_manual(
     breaks = as.character(1:4),
-    values = c("#FFB7C5", "#7FFFD4", "#FF7B54", "#A8DADC")
+    values = c("#D3A9C5", "#8CD3D6", "#F0B29D", "#7BABDD")
   ) +
   scale_x_continuous(breaks = 1:12, labels = 1:12) +
   facet_wrap(.~ source, labeller = labeller(source = c(
@@ -215,7 +211,7 @@ rbind(
 # 分客源分季度下，每个人每天滞留地点数量。
 # 分图方案。
 lapply(
-  list(c("local", "tourist"), "local", "tourist"),
+  list("local", "tourist"),
   function(x) {
     agoop_amami %>%
       st_drop_geometry() %>%
@@ -231,16 +227,6 @@ lapply(
   }
 ) %>%
   Reduce("/", .)
-# 同图方案。
-agoop_amami %>%
-  st_drop_geometry() %>%
-  group_by(source, qua, dailyid) %>%
-  summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
-  ggplot() +
-  geom_histogram(aes(loc_id_num, fill = source), col = "white", binwidth = 1) +
-  theme_bw() +
-  facet_wrap(.~ qua, scales = "free_y", nrow = 1) +
-  labs(x = "Location number", y = "Daily ID number")
 
 # 每个柱子中占比较多的是哪些具体地点？
 agoop_amami %>%
@@ -380,20 +366,7 @@ map2(
       select(origin, destination, flow) %>%
       rename_with(~ c("Source", "Target", "Weight")) %>%
       write.csv(
-        ., paste0("data_proc/od_edge_", x, "_", y, "_", Sys.Date(), ".csv"),
-        row.names = FALSE
-      )
-  }
-)
-# 导出边：分季节，不分客源。
-lapply(
-  c(1:4),
-  function(x) {
-    gephi_data[[x]] %>%
-      select(origin, destination, flow) %>%
-      rename_with(~ c("Source", "Target", "Weight")) %>%
-      write.csv(
-        ., paste0("data_proc/od_edge_", x, "_loc_tour_", Sys.Date(), ".csv"),
+        ., paste0("data_proc/od_edge_", y, "_", x, ".csv"),
         row.names = FALSE
       )
   }
@@ -409,12 +382,29 @@ map2(
         Id %in% unique(c(gephi_data[[x]]$origin, gephi_data[[x]]$destination))
       ) %>%
       write.csv(
-        ., paste0("data_proc/od_node_", x, "_", y, "_", Sys.Date(), ".csv"),
+        ., paste0("data_proc/od_node_", y, "_", x, ".csv"),
         row.names = FALSE
       )
   }
 )
-# 导出节点：分季节，不分客源。
+
+# 导出边：分季节不分客源。
+lapply(
+  c(1:4),
+  function(x) {
+    gephi_data[[x]] %>%
+      group_by(qua, origin, destination) %>%
+      summarise(flow = sum(flow), .groups = "drop") %>%
+      select(origin, destination, flow) %>%
+      rename_with(~ c("Source", "Target", "Weight")) %>%
+      write.csv(
+        ., paste0("data_proc/od_edge_allsrc_", x, ".csv"),
+        row.names = FALSE
+      )
+  }
+)
+
+# 导出节点：分季节不分客源。
 lapply(
   c(1:4),
   function(x) {
@@ -423,7 +413,7 @@ lapply(
         Id %in% unique(c(gephi_data[[x]]$origin, gephi_data[[x]]$destination))
       ) %>%
       write.csv(
-        ., paste0("data_proc/od_node_", x, "_loc_tour_", Sys.Date(), ".csv"),
+        ., paste0("data_proc/od_node_allsrc_", x, ".csv"),
         row.names = FALSE
       )
   }
