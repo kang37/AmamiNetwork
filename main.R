@@ -1,7 +1,7 @@
 # Preparation ----
 pacman::p_load(
   lubridate, dplyr, dbscan, sf, tmap, mapview, stringi, showtext, tmap,
-  purrr, ggplot2, patchwork, tidyr, RColorBrewer, targets
+  purrr, ggplot2, patchwork, tidyr, RColorBrewer, targets, ggsci
 )
 showtext_auto()
 
@@ -115,9 +115,16 @@ png(
 )
 ggplot() +
   geom_sf(data = amami, col = "lightgrey") +
-  geom_sf(data = loc) +
+  geom_sf(data = st_as_sf(st_centroid(loc)), aes(col = spa_group)) +
+  labs(col = "Location group") +
+  scale_color_npg() +
   theme_bw() +
-  theme(panel.grid.minor = element_blank())
+  theme(
+    legend.position = c(0.01, 0.99),
+    panel.grid.minor = element_blank(),
+    legend.justification = c("left", "top"),
+    legend.background = element_rect(color = "black")
+  )
 dev.off()
 
 # 第2部分：原始数据分布。
@@ -429,3 +436,13 @@ lapply(
       )
   }
 )
+
+# Results ----
+# 地点地图。
+loc %>%
+  st_centroid() %>%
+  st_as_sf() %>%
+  ggplot() +
+  geom_sf()
+
+
