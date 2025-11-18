@@ -903,3 +903,44 @@ map2(
     dev.off()
   }
 )
+
+# Results ----
+# 计算供需指数时的服务-中心度对应关系。
+# 读取数据
+library(readxl)
+df <- read_excel("data_proc/table_demand_supply_calc.xlsx") %>%
+  # 填充Visitor group列
+  fill(`Visitor group`, .direction = "down") %>%
+  # 转换为长格式
+  pivot_longer(
+    cols = c(Degree, Closeness, Harmonic),
+    names_to = "centrality",
+    values_to = "weight"
+  ) %>%
+  # 设置因子顺序
+  mutate(
+    centrality = factor(centrality, levels = c("Degree", "Closeness", "Harmonic"))
+  )
+
+# 图1: 热力图 (Heatmap)
+ggplot(df, aes(x = centrality, y = Service, fill = weight)) +
+  geom_tile(color = "white", linewidth = 1) +
+  # 添加数值标签
+  geom_text(
+    aes(label = ifelse(!is.na(weight), sprintf("%.1f", weight), "")),
+    col = "white"
+  ) +
+  facet_wrap(.~ `Visitor group`, ncol = 1, scale = "free_y") +
+  # 颜色设置
+  scale_fill_gradient(
+    low = "#FFF5EB", high = "#8B0000", na.value = "white",
+    limits = c(0, 1), name = "Weight"
+  ) +
+  labs(y = NULL) +
+  theme_bw()
+# 图2: 圆圈图 (Circle Plot)
+ggplot(df %>% filter(!is.na(weight)), aes(x = centrality, y = Service)) +
+  geom_point(size = 3) +
+  facet_wrap(.~ `Visitor group`, ncol = 1, scale = "free_y") +
+  labs(y = NULL) +
+  theme_bw()
