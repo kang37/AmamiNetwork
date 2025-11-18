@@ -107,7 +107,7 @@ od <- event %>%
   select(-loc_id, -event_id)
 
 # General description ----
-# 地点图和原始数据分布，分成3部分：区位图，原始数据分布，各地点轨迹点数分布。
+## 图2 ----
 # 第1部分：区位图，包含地点。
 png(
   paste0("data_proc/re_area_", Sys.Date(), ".png"),
@@ -163,51 +163,7 @@ ggplot() +
   theme(panel.grid.minor = element_blank())
 dev.off()
 
-# 第3部分：各地点轨迹点数分布。
-# 函数：各地点轨迹点数或人数，并显示游客和本地人比例作图。
-plt_loc_smry <- function(tar_var) {
-  loc_smry_proc <- loc_smry_1 %>%
-    pivot_wider(
-      id_cols = c(loc_id, qua),
-      names_from = source, values_from = all_of(tar_var), values_fill = 0
-    ) %>%
-    mutate(vis_2_loc = tourist / local, num = tourist + local) %>%
-    mutate(
-      vis_2_loc_quan = cut(
-        vis_2_loc,
-        breaks = quantile(vis_2_loc, probs = seq(0, 1, 0.25), na.rm = TRUE),
-        labels = 1:4,
-        include.lowest = TRUE
-      )
-    ) %>%
-    left_join(loc, by = "loc_id") %>%
-    st_as_sf()
-  ggplot() +
-    geom_sf(data = amami) +
-    geom_sf(
-      data = st_centroid(loc_smry_proc),
-      aes(size = num / 1000, col = as.numeric(vis_2_loc_quan)), alpha = 0.5
-    ) +
-    scale_color_gradient(low = "darkgreen", high = "orange") +
-    theme_bw() +
-    labs(
-      col = "Tourist/Local\nquartile", size = "Track point\nnumber (x 1000)"
-    ) +
-    facet_wrap(.~ qua) +
-    theme(axis.text.x = element_text(angle = 90))
-}
-# 作图：各地点轨迹点数。
-png(
-  paste0("data_proc/re_tp_num_", Sys.Date(), ".png"),
-  width = 1800, height = 1500, res = 300
-)
-plt_loc_smry("tp_num")
-dev.off()
-plt_loc_smry("tp_num") %>% saveRDS("temp_fig/re_tp_num.rds")
-# 作图：各地点人数。
-plt_loc_smry("dailyid_num")
-
-# 第4部分：奄美道路图。
+# 第3部分：奄美道路图。
 # 读取谢于松提取的奄美路线数据。
 # Bug：需要写数据来源。
 road <- st_read("data_raw/osm_amami_road/研究范围内的道路.shp") %>%
@@ -255,54 +211,96 @@ agoop_amami %>%
   geom_histogram(aes(n_log), col = "white") +
   theme_bw()
 
-# 每个月有多少人，本地和外地人分别多少？
-# 分季节和客源人数。
-p_pop_season_group <- agoop_amami %>%
-  st_drop_geometry() %>%
-  group_by(source, qua, month) %>%
-  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+## 图3 ----
+# 函数：各地点轨迹点数或人数，并显示游客和本地人比例作图。
+plt_loc_smry <- function(tar_var) {
+  loc_smry_proc <- loc_smry_1 %>%
+    pivot_wider(
+      id_cols = c(loc_id, qua),
+      names_from = source, values_from = all_of(tar_var), values_fill = 0
+    ) %>%
+    mutate(vis_2_loc = tourist / local, num = tourist + local) %>%
+    mutate(
+      vis_2_loc_quan = cut(
+        vis_2_loc,
+        breaks = quantile(vis_2_loc, probs = seq(0, 1, 0.25), na.rm = TRUE),
+        labels = 1:4,
+        include.lowest = TRUE
+      )
+    ) %>%
+    left_join(loc, by = "loc_id") %>%
+    st_as_sf()
   ggplot() +
-  geom_col(aes(month, dailyid_num, fill = qua)) +
-  scale_fill_manual(
-    breaks = as.character(1:4),
-    values = c("#D3A9C5", "#8CD3D6", "#F0B29D", "#7BABDD")
-  ) +
-  scale_x_continuous(breaks = 1:12, labels = 1:12) +
-  facet_wrap(.~ source, labeller = labeller(source = c(
-    "all" = "All", "local" = "Local", "tourist" = "Tourist"
-  )), ncol = 1) +
-  labs(x = "Month", y = "Numbe of daily ID", fill = "Quarter") +
-  theme_bw() +
-  theme(
-    legend.position = "right",
-    panel.grid.major = element_blank()
-  )
-print(p_pop_season_group)
-saveRDS(p_pop_season_group, "temp_fig/p_pop_season_group.rds")
+    geom_sf(data = amami) +
+    geom_sf(
+      data = st_centroid(loc_smry_proc),
+      aes(size = num, col = as.numeric(vis_2_loc_quan)), alpha = 0.5
+    ) +
+    scale_color_gradient(low = "darkgreen", high = "orange") +
+    theme_bw() +
+    facet_wrap(.~ qua, nrow = 1) +
+    theme(legend.position = "bottom", legend.box = "vertical")
+}
+# 作图：各地点轨迹点数。
+# plt_loc_smry("tp_num")
 
-# 分客源分季度下，每个人每天滞留地点数量。
-# 分图方案。
-lapply(
-  list("local", "tourist"),
-  function(x) {
-    agoop_amami %>%
-      st_drop_geometry() %>%
-      filter(source %in% x) %>%
-      group_by(source, qua, dailyid) %>%
-      summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
-      ggplot() +
-      geom_histogram(aes(loc_id_num), col = "white", binwidth = 1) +
-      theme_bw() +
-      facet_wrap(.~ qua, scales = "free_y", nrow = 1) +
-      labs(
-        x = "Location number",
-        y = paste(tools::toTitleCase(x), "daily ID count", collapse = " ")
-      ) +
-      lims(x = c(0, 15), y = c(0, 2000))
-  }
-) %>%
-  Reduce("/", .) %>%
-  saveRDS("temp_fig/visit_loc_hist.rds")
+# 图3。
+png(
+  paste0("data_proc/fig_3_", Sys.Date(), ".png"),
+  width = 2000, height = 3000, res = 300
+)
+(
+  # 每个月有多少人，本地和外地人分别多少？
+  # 分季节和客源人数。
+  agoop_amami %>%
+    st_drop_geometry() %>%
+    group_by(source, qua, month) %>%
+    summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+    ggplot() +
+    geom_col(aes(month, dailyid_num, fill = qua)) +
+    scale_fill_manual(
+      breaks = as.character(1:4),
+      values = c("#D3A9C5", "#8CD3D6", "#F0B29D", "#7BABDD")
+    ) +
+    scale_x_continuous(breaks = 1:12, labels = 1:12) +
+    facet_wrap(.~ source, labeller = labeller(source = c(
+      "local" = "Local", "tourist" = "Tourist"
+    )), ncol = 1) +
+    labs(
+      x = "Month", y = "Numbe of daily ID", fill = "Quarter", title = "(a)"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      panel.grid.major = element_blank()
+    )
+) / (
+  # 分客源分季度下，每个人每天滞留地点数量。
+  agoop_amami %>%
+    st_drop_geometry() %>%
+    group_by(source, qua, dailyid) %>%
+    summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
+    ggplot() +
+    geom_histogram(aes(loc_id_num), col = "white", binwidth = 1) +
+    theme_bw() +
+    facet_grid(
+      source ~ qua,
+      labeller = labeller(source = c("local" = "Local", "tourist" = "Tourist"))
+    ) +
+    labs(x = "Location number", y = "Count", title = "(b)")
+) / (
+  # 各季度
+  plt_loc_smry("dailyid_num") +
+    scale_x_continuous(
+      breaks = c(129.1, 129.5), labels = c("129.1E", "129.5E")
+    ) +
+    labs(
+      col = "Tourist/Local rate quartile",
+      size = "Daily ID number",
+      title = "(c)"
+    )
+)
+dev.off()
 
 # 每个柱子中占比较多的是哪些具体地点？
 agoop_amami %>%
