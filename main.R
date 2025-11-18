@@ -111,34 +111,53 @@ od <- event %>%
 # 第1部分：区位图，包含地点。
 png(
   paste0("data_proc/re_area_", Sys.Date(), ".png"),
-  width = 1500, height = 1500, res = 300
+  width = 1000, height = 1200, res = 300
 )
 ggplot() +
   geom_sf(data = amami, col = "lightgrey") +
   geom_sf(data = st_as_sf(st_centroid(loc)), aes(col = spa_group)) +
-  labs(col = "Location group") +
+  labs(col = "Group") +
   scale_color_npg() +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+  ) +
   theme_bw() +
   theme(
     legend.position = c(0.01, 0.99),
+    legend.key.height = unit(0.2, "lines"),
     panel.grid.minor = element_blank(),
     legend.justification = c("left", "top"),
     legend.background = element_rect(color = "black")
   )
+  # geom_sf_label(
+  #   data = st_as_sf(st_centroid(loc)),
+  #   aes(label = loc_id), # 映射 loc_id 列到标签文本
+  #   inherit.aes = FALSE, # 不继承前一个 geom_sf 的美学设置
+  #   size = 2.5,          # 设置标签字体大小
+  #   nudge_x = 0.005,     # 沿着X轴稍微偏移标签，使其不完全覆盖点
+  #   nudge_y = 0.005,     # 沿着Y轴稍微偏移标签
+  #   label.padding = unit(0.1, "lines"), # 减小标签背景框的边距
+  #   label.size = 0       # 移除标签背景框的边框（可选，让图更干净）
+  # )
 dev.off()
 
 # 第2部分：原始数据分布。
 # Bug: 只取一部分数据作图。
 png(
   paste0("data_proc/re_tp_raw_", Sys.Date(), ".png"),
-  width = 1500, height = 1500, res = 300
+  width = 1000, height = 1200, res = 300
 )
 set.seed(1234)
 ggplot() +
   geom_sf(data = amami, col = "lightgrey") +
   geom_sf(
-    data = st_jitter(sample_n(agoop_amami, size = 50000), 0.001),
+    data = st_jitter(sample_n(agoop_amami, size = 10000), 0.001),
     size = 0.1, col = "black", alpha = 0.8
+  ) +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
   ) +
   theme_bw() +
   theme(panel.grid.minor = element_blank())
@@ -187,6 +206,45 @@ dev.off()
 plt_loc_smry("tp_num") %>% saveRDS("temp_fig/re_tp_num.rds")
 # 作图：各地点人数。
 plt_loc_smry("dailyid_num")
+
+# 第4部分：奄美道路图。
+# 读取谢于松提取的奄美路线数据。
+# Bug：需要写数据来源。
+road <- st_read("data_raw/osm_amami_road/研究范围内的道路.shp") %>%
+  mutate(
+    road_class = case_when(
+      fclass %in% c("unclassified", "path", "track", "trunk") ~ "others",
+      TRUE ~ fclass
+    ),
+    road_class = factor(road_class, levels = c(
+      "primary", "secondary", "tertiary", "others"
+    ))
+  )
+png(
+  paste0("data_proc/road_", Sys.Date(), ".png"),
+  width = 1000, height = 1200, res = 300
+)
+ggplot() +
+  geom_sf(data = amami, col = "lightgrey") +
+  geom_sf(data = road, aes(col = road_class)) +
+  labs(col = "Class") +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+  ) +
+  scale_color_manual(
+    breaks = c("primary", "secondary", "tertiary", "others"),
+    values = c("darkred", "orange", "darkgreen", "lightgreen")
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = c(0.01, 0.99),
+    legend.key.height = unit(0.2, "lines"),
+    panel.grid.minor = element_blank(),
+    legend.justification = c("left", "top"),
+    legend.background = element_rect(color = "black")
+  )
+dev.off()
 
 # 每个人每天有几个记录点？
 agoop_amami %>%
