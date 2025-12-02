@@ -52,7 +52,66 @@ combined_data <- pmap(
   )
 
 # Demand ----
-
+# 函数：画特定群体各季节各中心度地图。
+plt_demand_map <- function(visitor_x) {
+  ggplot() +
+    geom_sf(data = amami, col = "lightgrey") +
+    geom_sf(
+      data = loc %>%
+        st_centroid() %>%
+        left_join(
+          combined_data %>% filter(vis_src == visitor_x),
+          by = c("loc_id" = "id")
+        ) %>%
+        select(
+          "loc_id", "spa_group", "vis_src", "season",
+          "degree", "closeness", "harmonic"
+        ) %>%
+        pivot_longer(
+          cols = c(degree, closeness, harmonic),
+          names_to = "centrality",
+          values_to = "cen_val"
+        ) %>%
+        # 对各个中心度进行标准化。
+        group_by(centrality) %>%
+        mutate(
+          # Min-Max 标准化公式：(x - min(x)) / (max(x) - min(x))
+          cen_val_normalized = (cen_val - min(cen_val, na.rm = TRUE)) /
+            (max(cen_val, na.rm = TRUE) - min(cen_val, na.rm = TRUE))
+        ) %>%
+        ungroup() %>%
+        # 修改变量类型。
+        mutate(spa_group = factor(spa_group, levels = c(
+          "north", "tatsugo", "airport", "city",
+          "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+        ))),
+      aes(size = cen_val_normalized, col = spa_group), alpha = 0.6
+    ) +
+    scale_color_npg() +
+    scale_size_continuous(
+      name = "Normalized Centrality", range = c(0.1, 3)
+    ) +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 90),
+      panel.grid = element_line(color = "white")
+    ) +
+    facet_grid(centrality ~ season)
+}
+# 居民各季节各项中心度。
+png(
+  "data_proc/loc_demand_map_local.png",
+  width = 3000, height = 2000, res = 300
+)
+plt_demand_map("local")
+dev.off()
+# 游客各季节各项中心度。
+png(
+  "data_proc/loc_demand_map_tourist.png",
+  width = 3000, height = 2000, res = 300
+)
+plt_demand_map("tourist")
+dev.off()
 
 # Supply ----
 # 定义不同可达时间段的权重。
