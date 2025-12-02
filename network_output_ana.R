@@ -51,7 +51,10 @@ combined_data <- pmap(
     "closeness" = "closnes"
   )
 
-# Supply POI ----
+# Demand ----
+
+
+# Supply ----
 # 定义不同可达时间段的权重。
 poi_access_weight <-
   setNames(sapply(seq(5, 30, 5), function(x) 1/x), seq(5, 30, 5))
@@ -91,7 +94,7 @@ access_cols <- c("education", "government", "health", "mobility",
                  "public_amenities", "retail", "tourism")
 
 png(
-  "data_proc/loc_poi_access_heatmap.png",
+  "data_proc/loc_poi_access_map.png",
   width = 3000, height = 2000, res = 300
 )
 ggplot() +
@@ -100,20 +103,25 @@ ggplot() +
     data = loc %>%
       st_centroid() %>%
       left_join(loc_poi_access, by = "loc_id") %>%
-      select(loc_id, all_of(access_cols)) %>%
+      select(loc_id, spa_group, all_of(access_cols)) %>%
       pivot_longer(
         cols = all_of(access_cols),
         names_to = "Facility_Type",
         values_to = "Accessibility"
-      ),
-    aes(size = Accessibility), alpha = 0.6
+      ) %>%
+      mutate(spa_group = factor(spa_group, levels = c(
+        "north", "tatsugo", "airport", "city",
+        "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+      ))),
+    aes(size = Accessibility, col = spa_group), alpha = 0.6
   ) +
+  scale_color_npg() +
   theme_bw() +
   theme(
     axis.text.x = element_text(angle = 90),
-    panel.grid = element_line(color = "white"),
-    legend.position = c(0.95, 0.05),
-    legend.justification = c("right", "bottom")
+    panel.grid = element_line(color = "white")
+    # legend.position = c(0.95, 0.05),
+    # legend.justification = c("right", "bottom")
   ) +
   facet_wrap(.~ Facility_Type, nrow = 2)
 dev.off()
