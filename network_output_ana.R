@@ -90,36 +90,40 @@ loc_poi_access <- lapply(excel_sheets(poi_file_path), proc_poi_sheet) %>%
 access_cols <- c("education", "government", "health", "mobility",
                  "public_amenities", "retail", "tourism")
 
-# 转换为长格式
-df_long <- loc_poi_access %>%
-  select(loc_id, all_of(access_cols)) %>%
-  pivot_longer(cols = all_of(access_cols),
-               names_to = "Facility_Type",
-               values_to = "Accessibility")
-
-# 确保 loc_id 顺序一致
-df_long$loc_id <- factor(df_long$loc_id, levels = unique(df$loc_id))
-
-# 绘图
-png("data_proc/loc_poi_access_heatmap.png", width = 3000, height = 1000, res = 300)
-ggplot(df_long, aes(x = loc_id, y = Facility_Type, fill = Accessibility)) +
-  geom_tile(color = "white", linewidth = 0.1) +
-  scale_fill_gradientn(
-    colors = c("#f7fbff", "#3182bd", "#08306b"),
-    limits = c(0, 1),
-    name = "Scaled\nAccessibility\nScore"
+png(
+  "data_proc/loc_poi_access_heatmap.png",
+  width = 3000, height = 2000, res = 300
+)
+ggplot() +
+  geom_sf(data = amami, col = "lightgrey") +
+  geom_sf(
+    data = loc %>%
+      st_centroid() %>%
+      left_join(loc_poi_access, by = "loc_id") %>%
+      select(loc_id, all_of(access_cols)) %>%
+      pivot_longer(
+        cols = all_of(access_cols),
+        names_to = "Facility_Type",
+        values_to = "Accessibility"
+      ),
+    aes(size = Accessibility), alpha = 0.6
   ) +
-  labs(
-    x = "Location ID",
-    y = "POI Type"
-  ) +
-  theme_minimal(base_size = 10) +
+  theme_bw() +
   theme(
     axis.text.x = element_text(angle = 90),
-    legend.title = element_text(size = 10),
-    panel.grid = element_blank()
-  )
+    panel.grid = element_line(color = "white"),
+    legend.position = c(0.95, 0.05),
+    legend.justification = c("right", "bottom")
+  ) +
+  facet_wrap(.~ Facility_Type, nrow = 2)
 dev.off()
+
+# 导出对应数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(loc_poi_access, by = "loc_id") %>%
+  select(loc_id, all_of(access_cols)) %>%
+  write.csv("data_proc/loc_poi_access.csv")
 
 # Demand and supply ----
 # 分客源-季节的各地点各类供需比率。
