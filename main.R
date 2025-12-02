@@ -115,7 +115,14 @@ png(
 )
 ggplot() +
   geom_sf(data = amami, col = "lightgrey") +
-  geom_sf(data = st_as_sf(st_centroid(loc)), aes(col = spa_group)) +
+  geom_sf(
+    data = st_as_sf(st_centroid(loc)) %>%
+      mutate(spa_group = factor(spa_group, levels = c(
+        "north", "tatsugo", "airport", "city",
+        "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+      ))),
+    aes(col = spa_group)
+  ) +
   labs(col = "Group") +
   scale_color_npg() +
   scale_x_continuous(
@@ -492,13 +499,4 @@ lapply(
       )
   }
 )
-
-# Results ----
-# 地点地图。
-loc %>%
-  st_centroid() %>%
-  st_as_sf() %>%
-  ggplot() +
-  geom_sf()
-
 
