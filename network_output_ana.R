@@ -767,3 +767,105 @@ ggplot(df %>% filter(!is.na(weight)), aes(x = centrality, y = Service)) +
   facet_wrap(.~ `Visitor group`, ncol = 1, scale = "free_y") +
   labs(y = NULL) +
   theme_bw()
+
+# Export ----
+# 各群体各季节中心度原始数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(
+    combined_data %>% filter(vis_src %in% c("local", "tourist")),
+    by = c("loc_id" = "id")
+  ) %>%
+  select(
+    "loc_id", "spa_group", "vis_src", "season",
+    "degree", "closeness", "harmonic"
+  ) %>%
+  write.csv("data_proc/loc_centrality_raw.csv")
+
+# 各群体各季节中心度按地区汇总数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(
+    combined_data %>% filter(vis_src %in% c("local", "tourist")),
+    by = c("loc_id" = "id")
+  ) %>%
+  select(
+    "loc_id", "spa_group", "vis_src", "season",
+    "degree", "closeness", "harmonic"
+  ) %>%
+  group_by(vis_src, spa_group, season) %>%
+  summarise(
+    across(
+      .cols = c(degree, closeness, harmonic),
+      .fns = list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd = ~ sd(.x, na.rm = TRUE),
+        # 计算四分位数。
+        q25 = ~ quantile(.x, probs = 0.25, na.rm = TRUE),
+        q50 = ~ quantile(.x, probs = 0.50, na.rm = TRUE), # 中位数
+        q75 = ~ quantile(.x, probs = 0.75, na.rm = TRUE)
+      ),
+      # 定义新列名格式：原始列名_函数名
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) %>%
+  write.csv("data_proc/loc_centrality_summary.csv")
+
+# 可达性原始数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(loc_poi_access, by = "loc_id") %>%
+  select(loc_id, spa_group, all_of(access_cols)) %>%
+  write.csv("data_proc/loc_accessibility_raw.csv")
+
+# 可达性汇总数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(loc_poi_access, by = "loc_id") %>%
+  select(loc_id, spa_group, all_of(access_cols)) %>%
+  group_by(spa_group) %>%
+  summarise(
+    across(
+      .cols = all_of(access_cols),
+      .fns = list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd = ~ sd(.x, na.rm = TRUE),
+        # 计算四分位数。
+        q25 = ~ quantile(.x, probs = 0.25, na.rm = TRUE),
+        q50 = ~ quantile(.x, probs = 0.50, na.rm = TRUE), # 中位数
+        q75 = ~ quantile(.x, probs = 0.75, na.rm = TRUE)
+      ),
+      # 定义新列名格式：原始列名_函数名
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) %>%
+  write.csv("data_proc/loc_accessibility_summary.csv")
+
+# 供需指数原始数据。
+loc_dem_sup %>%
+  select(vis_src, id, , spa_group, season, ds_cat, ds_val) %>%
+  write.csv("data_proc/loc_supplydemand_raw.csv")
+
+# 供需指数汇总计算。
+loc_dem_sup %>%
+  select(vis_src, id, , spa_group, season, ds_cat, ds_val) %>%
+  group_by(vis_src, spa_group, season, ds_cat) %>%
+  summarise(
+    across(
+      .cols = ds_val,
+      .fns = list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd = ~ sd(.x, na.rm = TRUE),
+        # 计算四分位数。
+        q25 = ~ quantile(.x, probs = 0.25, na.rm = TRUE),
+        q50 = ~ quantile(.x, probs = 0.50, na.rm = TRUE), # 中位数
+        q75 = ~ quantile(.x, probs = 0.75, na.rm = TRUE)
+      ),
+      # 定义新列名格式：原始列名_函数名
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) %>%
+  write.csv("data_proc/loc_supplydemand_summary.csv")
