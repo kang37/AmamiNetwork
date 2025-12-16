@@ -1,7 +1,8 @@
 # Preparation ----
 pacman::p_load(
   lubridate, dplyr, dbscan, sf, tmap, mapview, stringi, showtext, tmap,
-  purrr, ggplot2, patchwork, tidyr, RColorBrewer, targets, ggsci
+  purrr, ggplot2, patchwork, tidyr, RColorBrewer, targets, ggsci, ggthemes,
+  stringr
 )
 showtext_auto()
 
@@ -217,6 +218,70 @@ agoop_amami %>%
   ggplot() +
   geom_histogram(aes(n_log), col = "white") +
   theme_bw()
+
+# 第4部分：各类POI。
+# 获取文件路径列表。
+file_list <- list.files("data_raw/osm_poi", full.names = TRUE) %>%
+  grep(".shp$", ., value = TRUE)
+
+# 批量读取并合并。
+# 使用 map_df 会将每个文件读取后的 sf 对象合并在一起
+# 我们添加一个 .id 参数或手动添加一列来区分 POI 类型
+all_poi <- file_list %>%
+  map_df(~{
+    # 读取 shp 文件
+    temp_sf <- st_read(.x, quiet = TRUE)
+
+    # 提取文件名（不带路径和后缀）作为类别名称
+    type_name <- tools::file_path_sans_ext(basename(.x))
+
+    # 添加类别列
+    temp_sf <- temp_sf %>% mutate(poi_type = type_name)
+
+    return(temp_sf)
+  })
+
+# 绘图。
+png(
+  paste0("data_proc/poi_", Sys.Date(), ".png"),
+  width = 1000, height = 1200, res = 300
+)
+ggplot() +
+  geom_sf(data = amami, col = "lightgrey") +
+  # 绘制 POI 点，根据类别着色。
+  geom_sf(data = all_poi, aes(color = poi_type), size = 0.5, alpha = 0.7) +
+  scale_color_tableau(
+    palette = "Tableau 10",
+    labels = function(x) {
+      x %>%
+        # 1. 将下划线替换为空格
+        str_replace_all("_", " ") %>%
+        # 2. 删除指定的后缀（ignore_case = TRUE 确保大小写都能匹配）
+        # 使用 | 连接多个词，并匹配前后的空格
+        str_remove_all(
+          regex(" services| facilities| and utilities", ignore_case = TRUE)
+        ) %>%
+        # 3. 修剪首尾多余空格并将首字母大写
+        str_squish() %>%
+        str_to_title()
+    }
+  ) +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+  ) +
+  labs(color = "POI Type") +
+  # 保持坐标系比例一致
+  coord_sf() +
+  theme_bw() +
+  theme(
+    legend.position = c(0.01, 0.99),
+    legend.key.height = unit(0.3, "lines"),
+    panel.grid.minor = element_blank(),
+    legend.justification = c("left", "top"),
+    legend.background = element_rect(color = "black")
+  )
+dev.off()
 
 ## 图3 ----
 # 函数：各地点轨迹点数或人数，并显示游客和本地人比例作图。
