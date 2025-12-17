@@ -122,6 +122,10 @@ plt_demand_map("tourist")
 dev.off()
 
 # 第三部分：各用户群体不同地点组团中分季度中心度的中值对比。
+png(
+  paste0("data_proc/loc_cen_mid_", Sys.Date(), ".png"),
+  width = 1400, height = 800, res = 300
+)
 loc %>%
   st_drop_geometry() %>%
   left_join(
@@ -156,8 +160,10 @@ loc %>%
   )) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90))
+dev.off()
 
 # Supply ----
+## 图7 ----
 # 定义不同可达时间段的权重。
 poi_access_weight <-
   setNames(sapply(seq(5, 30, 5), function(x) 1/x), seq(5, 30, 5))
@@ -193,8 +199,10 @@ loc_poi_access <- lapply(excel_sheets(poi_file_path), proc_poi_sheet) %>%
   rename_with(~ tolower(.x))
 # 查看各地点可达性。
 # 定义可达性字段
-access_cols <- c("education", "government", "health", "mobility",
-                 "public_amenities", "retail", "tourism")
+access_cols <- c(
+  "education", "government", "health", "ac",
+  "public_amenities", "retail", "tourism"
+)
 
 png(
   "data_proc/loc_poi_access_map.png",
@@ -209,24 +217,38 @@ ggplot() +
       select(loc_id, spa_group, all_of(access_cols)) %>%
       pivot_longer(
         cols = all_of(access_cols),
-        names_to = "Facility_Type",
+        names_to = "poi",
         values_to = "Accessibility"
       ) %>%
-      mutate(spa_group = factor(spa_group, levels = c(
-        "north", "tatsugo", "airport", "city",
-        "mangrove", "mid", "uken", "setouchi", "kakeromajima"
-      ))),
+      mutate(
+        spa_group = factor(spa_group, levels = c(
+          "north", "tatsugo", "airport", "city",
+          "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+        )),
+        poi = case_when(
+          poi == "ac" ~ "Accommodation & Food",
+          poi == "education" ~ "Education",
+          poi == "government" ~ "Government",
+          poi == "health" ~ "Health",
+          poi == "public_amenities" ~ "Public amenities",
+          poi == "retail" ~ "Commerce",
+          poi == "tourism" ~ "Tourism & Recreation",
+        )
+      ),
     aes(size = Accessibility, col = spa_group), alpha = 0.6
   ) +
-  scale_color_npg() +
+  labs(col = "Location Cluster") +
+  scale_color_npg(labels = function(x) str_to_title(x)) +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+  ) +
   theme_bw() +
   theme(
     axis.text.x = element_text(angle = 90),
     panel.grid = element_line(color = "white")
-    # legend.position = c(0.95, 0.05),
-    # legend.justification = c("right", "bottom")
   ) +
-  facet_wrap(.~ Facility_Type, nrow = 2)
+  facet_wrap(.~ poi, nrow = 2)
 dev.off()
 
 # 导出对应数据。
