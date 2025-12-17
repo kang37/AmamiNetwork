@@ -124,8 +124,8 @@ ggplot() +
       ))),
     aes(col = spa_group)
   ) +
-  labs(col = "Group") +
-  scale_color_npg() +
+  labs(col = "Location cluster") +
+  scale_color_npg(labels = function(x) str_to_title(x)) +
   scale_x_continuous(
     breaks = c(129.1, 129.3, 129.5, 129.7),
     labels = c("129.1E", "129.3E", "129.5E", "129.7E")
@@ -138,16 +138,6 @@ ggplot() +
     legend.justification = c("left", "top"),
     legend.background = element_rect(color = "black")
   )
-  # geom_sf_label(
-  #   data = st_as_sf(st_centroid(loc)),
-  #   aes(label = loc_id), # 映射 loc_id 列到标签文本
-  #   inherit.aes = FALSE, # 不继承前一个 geom_sf 的美学设置
-  #   size = 2.5,          # 设置标签字体大小
-  #   nudge_x = 0.005,     # 沿着X轴稍微偏移标签，使其不完全覆盖点
-  #   nudge_y = 0.005,     # 沿着Y轴稍微偏移标签
-  #   label.padding = unit(0.1, "lines"), # 减小标签背景框的边距
-  #   label.size = 0       # 移除标签背景框的边框（可选，让图更干净）
-  # )
 dev.off()
 
 # 第2部分：原始数据分布。
