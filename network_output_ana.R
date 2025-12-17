@@ -356,20 +356,6 @@ loc_dem_sup_min <- loc_dem_sup %>%
   slice_min(order_by = ds_val, n = 30) %>%
   ungroup()
 
-# 条形图：分服务类型和客源，不分季节，比较各组团供给比率。
-lapply(
-  c("local", "tourist"),
-  function(x) {
-    loc_dem_sup %>%
-      filter(vis_src == x) %>%
-      ggplot() +
-      geom_histogram(aes(ds_val)) +
-      facet_grid(ds_cat ~ spa_group) +
-      theme_bw() +
-      theme(axis.text.x = element_text(angle = 90))
-  }
-)
-
 # 密度图：分服务类型和客源，不分季节，比较各组团供给比率。
 lapply(
   c("local", "tourist"),
@@ -384,21 +370,7 @@ lapply(
   }
 )
 
-## All source ----
-# 原始数据。
-png(
-  paste0("data_proc/ds_allsrc_raw_", Sys.Date(), ".png"),
-  width = 2000, height = 800, res = 300
-)
-loc_dem_sup %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_boxplot() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(ds_cat ~ season)
-dev.off()
-
-## Map ----
+## 图8 ----
 # 函数：用于画带有供需饼图的地图。
 plt_ds_map <- function(vis_src_x) {
   plt_data <- loc_dem_sup_min %>%
@@ -423,7 +395,6 @@ plt_ds_map <- function(vis_src_x) {
     theme_bw() +
     theme(
       axis.text.x = element_text(angle = 90),
-      panel.background = element_rect(fill = scales::alpha("#e6f4ff", 0.5)),
       panel.grid = element_line(color = "white")
     ) +
     facet_wrap(.~ season, nrow = 1)
@@ -573,6 +544,86 @@ ggplot() +
   ) +
   facet_grid(ds_cat ~ season) +
   theme_bw()
+dev.off()
+
+## 图9 ----
+# 各地点组团中供给短缺地点数量的比例。
+png(
+  "data_proc/loc_supply_short_percent.png",
+  width = 2000, height = 1000, res = 300
+)
+loc_dem_sup_min %>%
+  group_by(vis_src, ds_cat, spa_group, season) %>%
+  summarise(loc_n = n(), .groups = "drop") %>%
+  left_join(
+    loc %>%
+      st_drop_geometry() %>%
+      group_by(spa_group) %>%
+      summarise(loc_n_tot = n(), .groups = "drop"),
+    by = "spa_group"
+  ) %>%
+  mutate(loc_rate = loc_n / loc_n_tot) %>%
+  # 补全所有分类组合，并去除不必要的行。
+  complete(ds_cat, vis_src, season, spa_group) %>%
+  filter(
+    !(
+      ds_cat %in% c(
+        "ds_tour_mix", "ds_amen", "ds_amen_mix", "ds_accomfood_mix"
+      ) &
+        vis_src == "local"
+    ),
+    !(
+      ds_cat %in% c(
+        "ds_health", "ds_gov", "ds_edu", "ds_amen_mix"
+      ) &
+        vis_src == "tourist"
+    )
+  ) %>%
+  # 作图。
+  ggplot(aes(spa_group, ds_cat)) +
+  # 设置格子边框
+  geom_tile(aes(fill = loc_rate), color = "black") +
+  # 关键修改 1：消除坐标轴两侧的空白间隙，让边框贴齐
+  scale_x_discrete(expand = c(0.08, 0.08), labels = str_to_title) +
+  scale_y_discrete(
+    expand = c(0.08, 0.08),
+    labels = c(
+      "ds_accomfood_mix" = "Accommodation & Food",
+      "ds_retail_mix" = "Commerce",
+      "ds_edu" = "Education",
+      "ds_gov" = "Government",
+      "ds_health" = "Health",
+      "ds_amen" = "Public amenities",
+      "ds_amen_mix" = "Public amenities",
+      "ds_tour_mix" = "Tourism & Recreation"
+    )
+  ) +
+  # 设置颜色和NA值。
+  scale_fill_gradient(
+    low = "yellow", high = "darkred", na.value = "white",
+    name = "Location\nPercentage"
+  ) +
+  labs(x = "Location cluster", y = "Services") +
+  theme_bw() +
+  # 关键修改 2：调整主题，移除多余的外框冲突
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    panel.grid = element_blank(),
+    # 移除 theme_bw 默认的面板边框，防止双重线
+    panel.border = element_blank(),
+    # 移除坐标轴线。
+    axis.line = element_blank(),
+    # 如果有分面标题，去掉其背景边框
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.ticks = element_blank()
+  ) +
+  facet_grid(
+    vis_src ~ season, scale = "free_y",
+    labeller = labeller(season = c(
+      "1" = "Quater 1", "2" = "Quater 2", "3" = "Quater 3", "4" = "Quater 4"
+    ))
+  )
 dev.off()
 
 # Network index ----
