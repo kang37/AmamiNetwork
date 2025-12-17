@@ -154,7 +154,7 @@ loc %>%
   ggplot() +
   geom_point(aes(spa_group, cen_val, col = as.factor(season)), alpha = 0.8) +
   facet_grid(centrality ~ vis_src, scale = "free") +
-  labs(x = "Location cluster", y = "Centrality", col = "Quater") +
+  labs(x = "Location cluster", y = "Centrality", col = "Quarter") +
   scale_color_manual(values = c(
     "1" = "#377EB8", "2" = "#4DAF4A", "3" = "#E41A1C", "4" = "#FF7F00"
   )) +
@@ -371,6 +371,18 @@ lapply(
 )
 
 ## 图8 ----
+# 供需指数变量名和对应标签。
+ds_label <- c(
+  "ds_accomfood_mix" = "Accommodation & Food",
+  "ds_retail_mix" = "Commerce",
+  "ds_edu" = "Education",
+  "ds_gov" = "Government",
+  "ds_health" = "Health",
+  "ds_amen" = "Public amenities",
+  "ds_amen_mix" = "Public amenities",
+  "ds_tour_mix" = "Tourism & Recreation"
+)
+
 # 函数：用于画带有供需饼图的地图。
 plt_ds_map <- function(vis_src_x) {
   plt_data <- loc_dem_sup_min %>%
@@ -391,19 +403,30 @@ plt_ds_map <- function(vis_src_x) {
       cols= grep("^ds_", names(plt_data), value = TRUE),
       linewidth = 0.1, color = "white", alpha=0.9
     ) +
-    scale_fill_npg() +
+    scale_fill_npg(labels = ds_label) +
+    scale_x_continuous(
+      breaks = c(129.1, 129.3, 129.5, 129.7),
+      labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+    ) +
+    labs(fill = "Service") +
     theme_bw() +
     theme(
       axis.text.x = element_text(angle = 90),
       panel.grid = element_line(color = "white")
     ) +
-    facet_wrap(.~ season, nrow = 1)
+    facet_wrap(
+      .~ season, nrow = 1,
+      labeller = labeller(season = c(
+        "1" = "Quarter 1", "2" = "Quarter 2",
+        "3" = "Quarter 3", "4" = "Quarter 4"
+      ))
+    )
 }
 
 # 作图。
 # 本地人供需。
 png(
-  paste0("data_proc/ds_map_local_2", Sys.Date(), ".png"),
+  paste0("data_proc/ds_map_local_", Sys.Date(), ".png"),
   width = 3500, height = 1000, res = 300
 )
 plt_ds_map("local")
@@ -587,27 +610,18 @@ loc_dem_sup_min %>%
   scale_x_discrete(expand = c(0.08, 0.08), labels = str_to_title) +
   scale_y_discrete(
     expand = c(0.08, 0.08),
-    labels = c(
-      "ds_accomfood_mix" = "Accommodation & Food",
-      "ds_retail_mix" = "Commerce",
-      "ds_edu" = "Education",
-      "ds_gov" = "Government",
-      "ds_health" = "Health",
-      "ds_amen" = "Public amenities",
-      "ds_amen_mix" = "Public amenities",
-      "ds_tour_mix" = "Tourism & Recreation"
-    )
+    labels = ds_label
   ) +
   # 设置颜色和NA值。
   scale_fill_gradient(
     low = "yellow", high = "darkred", na.value = "white",
     name = "Location\nPercentage"
   ) +
-  labs(x = "Location cluster", y = "Services") +
+  labs(x = "Location cluster", y = "Service") +
   theme_bw() +
   # 关键修改 2：调整主题，移除多余的外框冲突
   theme(
-    axis.text.x = element_text(angle = 90, hjust = 1),
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
     panel.grid = element_blank(),
     # 移除 theme_bw 默认的面板边框，防止双重线
     panel.border = element_blank(),
@@ -653,7 +667,7 @@ net_index %>%
     )
   ) +
   theme_bw() +
-  labs(x = "Quater", y = "Index value")
+  labs(x = "Quarter", y = "Index value")
 
 # Node index ----
 # 直方图。
