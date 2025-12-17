@@ -1,7 +1,8 @@
 # Preparation ----
 pacman::p_load(
   lubridate, dplyr, dbscan, sf, tmap, mapview, stringi, showtext, tmap,
-  purrr, ggplot2, patchwork, tidyr, RColorBrewer, targets
+  purrr, ggplot2, patchwork, tidyr, RColorBrewer, targets, ggsci, ggthemes,
+  stringr
 )
 showtext_auto()
 
@@ -19,7 +20,7 @@ loc <- st_read("data_raw/loc/loc62.shp") %>%
 # Bug: 后面有同名变量。
 loc_smry_1 <- agoop_amami %>%
   st_drop_geometry() %>%
-  group_by(loc_id, source) %>%
+  group_by(loc_id, source, qua) %>%
   summarise(
     tp_num = n(),
     dailyid_num = length(unique(dailyid)),
@@ -107,42 +108,177 @@ od <- event %>%
   select(-loc_id, -event_id)
 
 # General description ----
-# 地点图和原始数据分布，分成3部分：区位图，原始数据分布，各地点轨迹点数分布。
+## 图2 ----
 # 第1部分：区位图，包含地点。
 png(
   paste0("data_proc/re_area_", Sys.Date(), ".png"),
-  width = 1500, height = 1500, res = 300
+  width = 1000, height = 1200, res = 300
 )
 ggplot() +
   geom_sf(data = amami, col = "lightgrey") +
-  geom_sf(data = loc) +
+  geom_sf(
+    data = st_as_sf(st_centroid(loc)) %>%
+      mutate(spa_group = factor(spa_group, levels = c(
+        "north", "tatsugo", "airport", "city",
+        "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+      ))),
+    aes(col = spa_group)
+  ) +
+  labs(col = "Location cluster") +
+  scale_color_npg(labels = function(x) str_to_title(x)) +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+  ) +
   theme_bw() +
-  theme(panel.grid.minor = element_blank())
+  theme(
+    legend.position = c(0.01, 0.99),
+    legend.key.height = unit(0.2, "lines"),
+    panel.grid.minor = element_blank(),
+    legend.justification = c("left", "top"),
+    legend.background = element_rect(color = "black")
+  )
 dev.off()
 
 # 第2部分：原始数据分布。
 # Bug: 只取一部分数据作图。
 png(
   paste0("data_proc/re_tp_raw_", Sys.Date(), ".png"),
-  width = 1500, height = 1500, res = 300
+  width = 1000, height = 1200, res = 300
 )
 set.seed(1234)
 ggplot() +
   geom_sf(data = amami, col = "lightgrey") +
   geom_sf(
-    data = st_jitter(sample_n(agoop_amami, size = 50000), 0.001),
+    data = st_jitter(sample_n(agoop_amami, size = 10000), 0.001),
     size = 0.1, col = "black", alpha = 0.8
+  ) +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
   ) +
   theme_bw() +
   theme(panel.grid.minor = element_blank())
 dev.off()
 
-# 第3部分：各地点轨迹点数分布。
+# 第3部分：奄美道路图。
+# 读取谢于松提取的奄美路线数据。
+# Bug：需要写数据来源。
+road <- st_read("data_raw/osm_amami_road/研究范围内的道路.shp") %>%
+  mutate(
+    road_class = case_when(
+      fclass %in% c("unclassified", "path", "track", "trunk") ~ "others",
+      TRUE ~ fclass
+    ),
+    road_class = factor(road_class, levels = c(
+      "primary", "secondary", "tertiary", "others"
+    ))
+  )
+png(
+  paste0("data_proc/road_", Sys.Date(), ".png"),
+  width = 1000, height = 1200, res = 300
+)
+ggplot() +
+  geom_sf(data = amami, col = "lightgrey") +
+  geom_sf(data = road, aes(col = road_class)) +
+  labs(col = "Class") +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+  ) +
+  scale_color_manual(
+    breaks = c("primary", "secondary", "tertiary", "others"),
+    values = c("darkred", "orange", "darkgreen", "lightgreen")
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = c(0.01, 0.99),
+    legend.key.height = unit(0.2, "lines"),
+    panel.grid.minor = element_blank(),
+    legend.justification = c("left", "top"),
+    legend.background = element_rect(color = "black")
+  )
+dev.off()
+
+# 每个人每天有几个记录点？
+agoop_amami %>%
+  st_drop_geometry() %>%
+  group_by(dailyid) %>%
+  summarise(n_log = n(), .groups = "drop") %>%
+  ggplot() +
+  geom_histogram(aes(n_log), col = "white") +
+  theme_bw()
+
+# 第4部分：各类POI。
+# 获取文件路径列表。
+file_list <- list.files("data_raw/osm_poi", full.names = TRUE) %>%
+  grep(".shp$", ., value = TRUE)
+
+# 批量读取并合并。
+# 使用 map_df 会将每个文件读取后的 sf 对象合并在一起
+# 我们添加一个 .id 参数或手动添加一列来区分 POI 类型
+all_poi <- file_list %>%
+  map_df(~{
+    # 读取 shp 文件
+    temp_sf <- st_read(.x, quiet = TRUE)
+
+    # 提取文件名（不带路径和后缀）作为类别名称
+    type_name <- tools::file_path_sans_ext(basename(.x))
+
+    # 添加类别列
+    temp_sf <- temp_sf %>% mutate(poi_type = type_name)
+
+    return(temp_sf)
+  })
+
+# 绘图。
+png(
+  paste0("data_proc/poi_", Sys.Date(), ".png"),
+  width = 1000, height = 1200, res = 300
+)
+ggplot() +
+  geom_sf(data = amami, col = "lightgrey") +
+  # 绘制 POI 点，根据类别着色。
+  geom_sf(data = all_poi, aes(color = poi_type), size = 0.5, alpha = 0.7) +
+  scale_color_tableau(
+    palette = "Tableau 10",
+    labels = function(x) {
+      x %>%
+        # 1. 将下划线替换为空格
+        str_replace_all("_", " ") %>%
+        # 2. 删除指定的后缀（ignore_case = TRUE 确保大小写都能匹配）
+        # 使用 | 连接多个词，并匹配前后的空格
+        str_remove_all(
+          regex(" services| facilities| and utilities", ignore_case = TRUE)
+        ) %>%
+        # 3. 修剪首尾多余空格并将首字母大写
+        str_squish() %>%
+        str_to_title()
+    }
+  ) +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+  ) +
+  labs(color = "POI Type") +
+  # 保持坐标系比例一致
+  coord_sf() +
+  theme_bw() +
+  theme(
+    legend.position = c(0.01, 0.99),
+    legend.key.height = unit(0.3, "lines"),
+    panel.grid.minor = element_blank(),
+    legend.justification = c("left", "top"),
+    legend.background = element_rect(color = "black")
+  )
+dev.off()
+
+## 图3 ----
 # 函数：各地点轨迹点数或人数，并显示游客和本地人比例作图。
 plt_loc_smry <- function(tar_var) {
   loc_smry_proc <- loc_smry_1 %>%
     pivot_wider(
-      id_cols = loc_id,
+      id_cols = c(loc_id, qua),
       names_from = source, values_from = all_of(tar_var), values_fill = 0
     ) %>%
     mutate(vis_2_loc = tourist / local, num = tourist + local) %>%
@@ -164,69 +300,69 @@ plt_loc_smry <- function(tar_var) {
     ) +
     scale_color_gradient(low = "darkgreen", high = "orange") +
     theme_bw() +
-    labs(col = "Tourist/Local\nquartile", size = "Track point\nnumber")
+    facet_wrap(.~ qua, nrow = 1) +
+    theme(legend.position = "bottom", legend.box = "vertical")
 }
 # 作图：各地点轨迹点数。
+# plt_loc_smry("tp_num")
+
+# 图3。
 png(
-  paste0("data_proc/re_tp_num_", Sys.Date(), ".png"),
-  width = 1800, height = 1500, res = 300
+  paste0("data_proc/fig_3_", Sys.Date(), ".png"),
+  width = 2000, height = 3000, res = 300
 )
-plt_loc_smry("tp_num")
+(
+  # 每个月有多少人，本地和外地人分别多少？
+  # 分季节和客源人数。
+  agoop_amami %>%
+    st_drop_geometry() %>%
+    group_by(source, qua, month) %>%
+    summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
+    ggplot() +
+    geom_col(aes(month, dailyid_num, fill = qua)) +
+    scale_fill_manual(
+      breaks = as.character(1:4),
+      values = c("#D3A9C5", "#8CD3D6", "#F0B29D", "#7BABDD")
+    ) +
+    scale_x_continuous(breaks = 1:12, labels = 1:12) +
+    facet_wrap(.~ source, labeller = labeller(source = c(
+      "local" = "Local", "tourist" = "Tourist"
+    )), ncol = 1) +
+    labs(
+      x = "Month", y = "Numbe of daily ID", fill = "Quarter", title = "(a)"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      panel.grid.major = element_blank()
+    )
+) / (
+  # 分客源分季度下，每个人每天滞留地点数量。
+  agoop_amami %>%
+    st_drop_geometry() %>%
+    group_by(source, qua, dailyid) %>%
+    summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
+    ggplot() +
+    geom_histogram(aes(loc_id_num), col = "white", binwidth = 1) +
+    theme_bw() +
+    facet_grid(
+      source ~ qua,
+      labeller = labeller(source = c("local" = "Local", "tourist" = "Tourist"))
+    ) +
+    labs(x = "Location number", y = "Count", title = "(b)")
+) / (
+  # 各季度
+  plt_loc_smry("dailyid_num") +
+    scale_x_continuous(
+      breaks = c(129.1, 129.5), labels = c("129.1E", "129.5E")
+    ) +
+    labs(
+      col = "Tourist/Local rate quartile",
+      size = "Daily ID number",
+      title = "(c)"
+    )
+)
 dev.off()
-# 作图：各地点人数。
-plt_loc_smry("dailyid_num")
-
-# 每个人每天有几个记录点？
-agoop_amami %>%
-  st_drop_geometry() %>%
-  group_by(dailyid) %>%
-  summarise(n_log = n(), .groups = "drop") %>%
-  ggplot() +
-  geom_histogram(aes(n_log), col = "white") +
-  theme_bw()
-
-# 每个月有多少人，本地和外地人分别多少？
-# 分季节和客源人数。
-agoop_amami %>%
-  st_drop_geometry() %>%
-  group_by(source, qua, month) %>%
-  summarise(dailyid_num = length(unique(dailyid)), .groups = "drop") %>%
-  ggplot() +
-  geom_col(aes(month, dailyid_num, fill = qua)) +
-  scale_fill_manual(
-    breaks = as.character(1:4),
-    values = c("#D3A9C5", "#8CD3D6", "#F0B29D", "#7BABDD")
-  ) +
-  scale_x_continuous(breaks = 1:12, labels = 1:12) +
-  facet_wrap(.~ source, labeller = labeller(source = c(
-    "all" = "All", "local" = "Local", "tourist" = "Tourist"
-  ))) +
-  labs(x = "Month", y = "Numbe of daily ID", fill = "Quarter") +
-  theme_bw() +
-  theme(
-    legend.position = "top",
-    panel.grid.major = element_blank()
-  )
-
-# 分客源分季度下，每个人每天滞留地点数量。
-# 分图方案。
-lapply(
-  list("local", "tourist"),
-  function(x) {
-    agoop_amami %>%
-      st_drop_geometry() %>%
-      filter(source %in% x) %>%
-      group_by(source, qua, dailyid) %>%
-      summarise(loc_id_num = length(unique(loc_id)), .groups = "drop") %>%
-      ggplot() +
-      geom_histogram(aes(loc_id_num), col = "white", binwidth = 1) +
-      theme_bw() +
-      facet_wrap(.~ qua, scales = "free_y", nrow = 1) +
-      labs(x = "Location number", y = "Daily ID count") +
-      lims(x = c(0, 15))
-  }
-) %>%
-  Reduce("/", .)
 
 # 每个柱子中占比较多的是哪些具体地点？
 agoop_amami %>%
@@ -418,3 +554,4 @@ lapply(
       )
   }
 )
+

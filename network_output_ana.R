@@ -51,7 +51,119 @@ combined_data <- pmap(
     "closeness" = "closnes"
   )
 
-# Supply POI ----
+# Demand ----
+## 图6 ----
+# 函数：画特定群体各季节各中心度地图。
+plt_demand_map <- function(visitor_x) {
+  ggplot() +
+    geom_sf(data = amami, col = "lightgrey") +
+    geom_sf(
+      data = loc %>%
+        st_centroid() %>%
+        left_join(
+          combined_data %>% filter(vis_src == visitor_x),
+          by = c("loc_id" = "id")
+        ) %>%
+        select(
+          "loc_id", "spa_group", "vis_src", "season",
+          "degree", "closeness", "harmonic"
+        ) %>%
+        pivot_longer(
+          cols = c(degree, closeness, harmonic),
+          names_to = "centrality",
+          values_to = "cen_val"
+        ) %>%
+        # 对各个中心度进行标准化。
+        group_by(centrality) %>%
+        mutate(
+          # Min-Max 标准化公式：(x - min(x)) / (max(x) - min(x))
+          cen_val_normalized = (cen_val - min(cen_val, na.rm = TRUE)) /
+            (max(cen_val, na.rm = TRUE) - min(cen_val, na.rm = TRUE))
+        ) %>%
+        ungroup() %>%
+        # 修改变量类型。
+        mutate(spa_group = factor(spa_group, levels = c(
+          "north", "tatsugo", "airport", "city",
+          "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+        ))),
+      aes(size = cen_val_normalized, col = spa_group), alpha = 0.6
+    ) +
+    scale_color_npg(labels = function(x) str_to_title(x)) +
+    scale_x_continuous(
+      breaks = c(129.1, 129.3, 129.5, 129.7),
+      labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+    ) +
+    labs(col = "Location cluster") +
+    scale_size_continuous(
+      name = "Normalized Centrality", range = c(0.1, 3)
+    ) +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 90),
+      panel.grid = element_line(color = "white"),
+      legend.text = element_text(size = 13),
+      legend.title = element_text(size = 14)
+    ) +
+    facet_grid(centrality ~ season)
+}
+# 居民各季节各项中心度。
+png(
+  "data_proc/loc_demand_map_local.png",
+  width = 3000, height = 2000, res = 300
+)
+plt_demand_map("local")
+dev.off()
+# 游客各季节各项中心度。
+png(
+  "data_proc/loc_demand_map_tourist.png",
+  width = 3000, height = 2000, res = 300
+)
+plt_demand_map("tourist")
+dev.off()
+
+# 第三部分：各用户群体不同地点组团中分季度中心度的中值对比。
+png(
+  paste0("data_proc/loc_cen_mid_", Sys.Date(), ".png"),
+  width = 1400, height = 800, res = 300
+)
+loc %>%
+  st_drop_geometry() %>%
+  left_join(
+    combined_data %>% filter(vis_src %in% c("local", "tourist")),
+    by = c("loc_id" = "id")
+  ) %>%
+  select(
+    "loc_id", "spa_group", "vis_src", "season",
+    "degree", "closeness", "harmonic"
+  ) %>%
+  group_by(vis_src, spa_group, season) %>%
+  summarise(
+    across(c(degree, closeness, harmonic), function(x) median(x, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(degree, closeness, harmonic),
+    names_to = "centrality",
+    values_to = "cen_val"
+  ) %>%
+  mutate(
+    spa_group = str_to_title(spa_group),
+    vis_src = str_to_title(vis_src),
+    centrality = str_to_title(centrality)
+  ) %>%
+  ggplot() +
+  geom_point(aes(spa_group, cen_val, col = as.factor(season)), alpha = 0.8) +
+  facet_grid(centrality ~ vis_src, scale = "free") +
+  labs(x = "Location cluster", y = "Centrality", col = "Quarter") +
+  scale_color_manual(values = c(
+    "1" = "#377EB8", "2" = "#4DAF4A", "3" = "#E41A1C", "4" = "#FF7F00"
+  )) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+dev.off()
+
+# Supply ----
+## 图7 ----
 # 定义不同可达时间段的权重。
 poi_access_weight <-
   setNames(sapply(seq(5, 30, 5), function(x) 1/x), seq(5, 30, 5))
@@ -87,39 +199,64 @@ loc_poi_access <- lapply(excel_sheets(poi_file_path), proc_poi_sheet) %>%
   rename_with(~ tolower(.x))
 # 查看各地点可达性。
 # 定义可达性字段
-access_cols <- c("education", "government", "health", "mobility",
-                 "public_amenities", "retail", "tourism")
+access_cols <- c(
+  "education", "government", "health", "ac",
+  "public_amenities", "retail", "tourism"
+)
 
-# 转换为长格式
-df_long <- loc_poi_access %>%
-  select(loc_id, all_of(access_cols)) %>%
-  pivot_longer(cols = all_of(access_cols),
-               names_to = "Facility_Type",
-               values_to = "Accessibility")
-
-# 确保 loc_id 顺序一致
-df_long$loc_id <- factor(df_long$loc_id, levels = unique(df$loc_id))
-
-# 绘图
-png("data_proc/loc_poi_access_heatmap.png", width = 3000, height = 1000, res = 300)
-ggplot(df_long, aes(x = loc_id, y = Facility_Type, fill = Accessibility)) +
-  geom_tile(color = "white", linewidth = 0.1) +
-  scale_fill_gradientn(
-    colors = c("#f7fbff", "#3182bd", "#08306b"),
-    limits = c(0, 1),
-    name = "Scaled\nAccessibility\nScore"
+png(
+  "data_proc/loc_poi_access_map.png",
+  width = 3000, height = 2000, res = 300
+)
+ggplot() +
+  geom_sf(data = amami, col = "lightgrey") +
+  geom_sf(
+    data = loc %>%
+      st_centroid() %>%
+      left_join(loc_poi_access, by = "loc_id") %>%
+      select(loc_id, spa_group, all_of(access_cols)) %>%
+      pivot_longer(
+        cols = all_of(access_cols),
+        names_to = "poi",
+        values_to = "Accessibility"
+      ) %>%
+      mutate(
+        spa_group = factor(spa_group, levels = c(
+          "north", "tatsugo", "airport", "city",
+          "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+        )),
+        poi = case_when(
+          poi == "ac" ~ "Accommodation & Food",
+          poi == "education" ~ "Education",
+          poi == "government" ~ "Government",
+          poi == "health" ~ "Health",
+          poi == "public_amenities" ~ "Public amenities",
+          poi == "retail" ~ "Commerce",
+          poi == "tourism" ~ "Tourism & Recreation",
+        )
+      ),
+    aes(size = Accessibility, col = spa_group), alpha = 0.6
   ) +
-  labs(
-    x = "Location ID",
-    y = "POI Type"
+  labs(col = "Location Cluster") +
+  scale_color_npg(labels = function(x) str_to_title(x)) +
+  scale_x_continuous(
+    breaks = c(129.1, 129.3, 129.5, 129.7),
+    labels = c("129.1E", "129.3E", "129.5E", "129.7E")
   ) +
-  theme_minimal(base_size = 10) +
+  theme_bw() +
   theme(
     axis.text.x = element_text(angle = 90),
-    legend.title = element_text(size = 10),
-    panel.grid = element_blank()
-  )
+    panel.grid = element_line(color = "white")
+  ) +
+  facet_wrap(.~ poi, nrow = 2)
 dev.off()
+
+# 导出对应数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(loc_poi_access, by = "loc_id") %>%
+  select(loc_id, all_of(access_cols)) %>%
+  write.csv("data_proc/loc_poi_access.csv")
 
 # Demand and supply ----
 # 分客源-季节的各地点各类供需比率。
@@ -219,20 +356,6 @@ loc_dem_sup_min <- loc_dem_sup %>%
   slice_min(order_by = ds_val, n = 30) %>%
   ungroup()
 
-# 条形图：分服务类型和客源，不分季节，比较各组团供给比率。
-lapply(
-  c("local", "tourist"),
-  function(x) {
-    loc_dem_sup %>%
-      filter(vis_src == x) %>%
-      ggplot() +
-      geom_histogram(aes(ds_val)) +
-      facet_grid(ds_cat ~ spa_group) +
-      theme_bw() +
-      theme(axis.text.x = element_text(angle = 90))
-  }
-)
-
 # 密度图：分服务类型和客源，不分季节，比较各组团供给比率。
 lapply(
   c("local", "tourist"),
@@ -247,269 +370,19 @@ lapply(
   }
 )
 
-## Local ----
-# 本地人的各项需求。
-png(
-  paste0("data_proc/ds_local_raw_", Sys.Date(), ".png"),
-  width = 2000, height = 3000, res = 300
+## 图8 ----
+# 供需指数变量名和对应标签。
+ds_label <- c(
+  "ds_accomfood_mix" = "Accommodation & Food",
+  "ds_retail_mix" = "Commerce",
+  "ds_edu" = "Education",
+  "ds_gov" = "Government",
+  "ds_health" = "Health",
+  "ds_amen" = "Public amenities",
+  "ds_amen_mix" = "Public amenities",
+  "ds_tour_mix" = "Tourism & Recreation"
 )
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "local") %>%
-  select(spa_group, season, contains("local_")) %>%
-  pivot_longer(
-    cols = c(contains("local_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_boxplot() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(ds_cat ~ season)
-dev.off()
 
-# 对数尺度。
-png(
-  paste0("data_proc/ds_local_log_", Sys.Date(), ".png"),
-  width = 2000, height = 3000, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "local") %>%
-  select(spa_group, season, contains("local_")) %>%
-  pivot_longer(
-    cols = c(contains("local_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  ggplot(aes(spa_group, log(ds_val))) +
-  geom_boxplot() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(ds_cat ~ season)
-dev.off()
-
-# 平均数。
-png(
-  paste0("data_proc/ds_local_mean_", Sys.Date(), ".png"),
-  width = 2000, height = 3000, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "local") %>%
-  select(spa_group, season, contains("local_")) %>%
-  pivot_longer(
-    cols = c(contains("local_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  group_by(spa_group, season, ds_cat) %>%
-  summarise(ds_val = mean(ds_val), .groups = "drop") %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_col() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(
-    ds_cat ~ season, scale = "free_y",
-    labeller = labeller(.rows = function(x) str_remove(x, "^local_ds_"))
-  )
-dev.off()
-
-# 中位数。
-png(
-  paste0("data_proc/ds_local_mid_", Sys.Date(), ".png"),
-  width = 2000, height = 3000, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "local") %>%
-  select(spa_group, season, contains("local_")) %>%
-  pivot_longer(
-    cols = c(contains("local_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  group_by(spa_group, season, ds_cat) %>%
-  summarise(ds_val = median(ds_val), .groups = "drop") %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_col() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(
-    ds_cat ~ season, scale = "free_y",
-    labeller = labeller(.rows = function(x) str_remove(x, "^local_ds_"))
-  )
-dev.off()
-
-## Tourist ----
-# 旅客的各项需求。
-# 原始数据。
-png(
-  paste0("data_proc/ds_tourist_raw_", Sys.Date(), ".png"),
-  width = 2000, height = 3500, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "tourist") %>%
-  select(spa_group, season, contains("tourist_")) %>%
-  pivot_longer(
-    cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_boxplot() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(ds_cat ~ season)
-dev.off()
-
-# 对数尺度。
-png(
-  paste0("data_proc/ds_tourist_log_", Sys.Date(), ".png"),
-  width = 2000, height = 3500, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "tourist") %>%
-  select(spa_group, season, contains("tourist_")) %>%
-  pivot_longer(
-    cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  ggplot(aes(spa_group, log(ds_val))) +
-  geom_boxplot() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(ds_cat ~ season)
-dev.off()
-
-# 平均数。
-png(
-  paste0("data_proc/ds_tourist_mean_", Sys.Date(), ".png"),
-  width = 2000, height = 3500, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "tourist") %>%
-  select(spa_group, season, contains("tourist_")) %>%
-  pivot_longer(
-    cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  group_by(spa_group, season, ds_cat) %>%
-  summarise(ds_val = mean(ds_val), .groups = "drop") %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_col() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(
-    ds_cat ~ season, scale = "free_y",
-    labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
-  )
-dev.off()
-
-# 中位数。
-png(
-  paste0("data_proc/ds_tourist_mid_", Sys.Date(), ".png"),
-  width = 2000, height = 3500, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "tourist") %>%
-  select(spa_group, season, contains("tourist_")) %>%
-  pivot_longer(
-    cols = c(contains("tourist_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  group_by(spa_group, season, ds_cat) %>%
-  summarise(ds_val = median(ds_val), .groups = "drop") %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_col() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(
-    ds_cat ~ season, scale = "free_y",
-    labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
-  )
-dev.off()
-
-## All source ----
-# 原始数据。
-png(
-  paste0("data_proc/ds_allsrc_raw_", Sys.Date(), ".png"),
-  width = 2000, height = 800, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "allsrc") %>%
-  select(spa_group, season, contains("allsrc_")) %>%
-  pivot_longer(
-    cols = c(contains("allsrc_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_boxplot() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(ds_cat ~ season)
-dev.off()
-
-# 对数尺度。
-png(
-  paste0("data_proc/ds_allsrc_log_", Sys.Date(), ".png"),
-  width = 2000, height = 800, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "allsrc") %>%
-  select(spa_group, season, contains("allsrc_")) %>%
-  pivot_longer(
-    cols = c(contains("allsrc_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  ggplot(aes(spa_group, log(ds_val))) +
-  geom_boxplot() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(ds_cat ~ season)
-dev.off()
-
-# 平均数。
-png(
-  paste0("data_proc/ds_allsrc_mean_", Sys.Date(), ".png"),
-  width = 2000, height = 800, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "allsrc") %>%
-  select(spa_group, season, contains("allsrc_")) %>%
-  pivot_longer(
-    cols = c(contains("allsrc_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  group_by(spa_group, season, ds_cat) %>%
-  summarise(ds_val = mean(ds_val), .groups = "drop") %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_col() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(
-    ds_cat ~ season, scale = "free_y",
-    labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
-  )
-dev.off()
-
-# 中位数。
-png(
-  paste0("data_proc/ds_allsrc_mid_", Sys.Date(), ".png"),
-  width = 2000, height = 800, res = 300
-)
-loc_dem_sup %>%
-  st_drop_geometry() %>%
-  filter(vis_src == "allsrc") %>%
-  select(spa_group, season, contains("allsrc_")) %>%
-  pivot_longer(
-    cols = c(contains("allsrc_")), names_to = "ds_cat", values_to = "ds_val"
-  ) %>%
-  group_by(spa_group, season, ds_cat) %>%
-  summarise(ds_val = median(ds_val), .groups = "drop") %>%
-  ggplot(aes(spa_group, ds_val)) +
-  geom_col() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90)) +
-  facet_grid(
-    ds_cat ~ season, scale = "free_y",
-    labeller = labeller(.rows = function(x) str_remove(x, "^tourist_ds_"))
-  )
-dev.off()
-
-## Map ----
 # 函数：用于画带有供需饼图的地图。
 plt_ds_map <- function(vis_src_x) {
   plt_data <- loc_dem_sup_min %>%
@@ -530,20 +403,30 @@ plt_ds_map <- function(vis_src_x) {
       cols= grep("^ds_", names(plt_data), value = TRUE),
       linewidth = 0.1, color = "white", alpha=0.9
     ) +
-    scale_fill_npg() +
+    scale_fill_npg(labels = ds_label) +
+    scale_x_continuous(
+      breaks = c(129.1, 129.3, 129.5, 129.7),
+      labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+    ) +
+    labs(fill = "Service") +
     theme_bw() +
     theme(
       axis.text.x = element_text(angle = 90),
-      panel.background = element_rect(fill = scales::alpha("#e6f4ff", 0.5)),
       panel.grid = element_line(color = "white")
     ) +
-    facet_wrap(.~ season, nrow = 1)
+    facet_wrap(
+      .~ season, nrow = 1,
+      labeller = labeller(season = c(
+        "1" = "Quarter 1", "2" = "Quarter 2",
+        "3" = "Quarter 3", "4" = "Quarter 4"
+      ))
+    )
 }
 
 # 作图。
 # 本地人供需。
 png(
-  paste0("data_proc/ds_map_local_2", Sys.Date(), ".png"),
+  paste0("data_proc/ds_map_local_", Sys.Date(), ".png"),
   width = 3500, height = 1000, res = 300
 )
 plt_ds_map("local")
@@ -686,6 +569,77 @@ ggplot() +
   theme_bw()
 dev.off()
 
+## 图9 ----
+# 各地点组团中供给短缺地点数量的比例。
+png(
+  "data_proc/loc_supply_short_percent.png",
+  width = 2000, height = 1000, res = 300
+)
+loc_dem_sup_min %>%
+  group_by(vis_src, ds_cat, spa_group, season) %>%
+  summarise(loc_n = n(), .groups = "drop") %>%
+  left_join(
+    loc %>%
+      st_drop_geometry() %>%
+      group_by(spa_group) %>%
+      summarise(loc_n_tot = n(), .groups = "drop"),
+    by = "spa_group"
+  ) %>%
+  mutate(loc_rate = loc_n / loc_n_tot) %>%
+  # 补全所有分类组合，并去除不必要的行。
+  complete(ds_cat, vis_src, season, spa_group) %>%
+  filter(
+    !(
+      ds_cat %in% c(
+        "ds_tour_mix", "ds_amen", "ds_amen_mix", "ds_accomfood_mix"
+      ) &
+        vis_src == "local"
+    ),
+    !(
+      ds_cat %in% c(
+        "ds_health", "ds_gov", "ds_edu", "ds_amen_mix"
+      ) &
+        vis_src == "tourist"
+    )
+  ) %>%
+  # 作图。
+  ggplot(aes(spa_group, ds_cat)) +
+  # 设置格子边框
+  geom_tile(aes(fill = loc_rate), color = "black") +
+  # 关键修改 1：消除坐标轴两侧的空白间隙，让边框贴齐
+  scale_x_discrete(expand = c(0.08, 0.08), labels = str_to_title) +
+  scale_y_discrete(
+    expand = c(0.08, 0.08),
+    labels = ds_label
+  ) +
+  # 设置颜色和NA值。
+  scale_fill_gradient(
+    low = "yellow", high = "darkred", na.value = "white",
+    name = "Location\nPercentage"
+  ) +
+  labs(x = "Location cluster", y = "Service") +
+  theme_bw() +
+  # 关键修改 2：调整主题，移除多余的外框冲突
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    panel.grid = element_blank(),
+    # 移除 theme_bw 默认的面板边框，防止双重线
+    panel.border = element_blank(),
+    # 移除坐标轴线。
+    axis.line = element_blank(),
+    # 如果有分面标题，去掉其背景边框
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold"),
+    axis.ticks = element_blank()
+  ) +
+  facet_grid(
+    vis_src ~ season, scale = "free_y",
+    labeller = labeller(season = c(
+      "1" = "Quater 1", "2" = "Quater 2", "3" = "Quater 3", "4" = "Quater 4"
+    ))
+  )
+dev.off()
+
 # Network index ----
 net_index <- read.csv("data_raw/net_index.csv") %>%
   tibble()
@@ -699,14 +653,21 @@ net_index %>%
   geom_col(aes(season, index_val)) +
   facet_grid(
     index_cat ~ vis_src, scales = "free",
-    labeller = labeller(vis_src = as_labeller(
-      c("local" = "Local", "tourist" = "Tourist", "all_src" = "All visitor")
-    ),
-    index_cat = as_labeller(
-      c("Average Clustering Coefficient" = "Average\nClustering Coefficient")
-    ))
+    labeller = labeller(
+      vis_src = as_labeller(
+        c("local" = "Local", "tourist" = "Tourist", "all_src" = "All visitor")
+      ),
+      index_cat = as_labeller(
+        function(x) {
+          x <- gsub("_", "\n", x)
+          x <- stringr::str_to_title(x)
+          gsub("Avg", "Average", x)
+        }
+      )
+    )
   ) +
-  theme_bw()
+  theme_bw() +
+  labs(x = "Quarter", y = "Index value")
 
 # Node index ----
 # 直方图。
@@ -896,3 +857,146 @@ map2(
     dev.off()
   }
 )
+
+# Results ----
+# 计算供需指数时的服务-中心度对应关系。
+# 读取数据
+library(readxl)
+df <- read_excel("data_proc/table_demand_supply_calc.xlsx") %>%
+  # 填充Visitor group列
+  fill(`Visitor group`, .direction = "down") %>%
+  # 转换为长格式
+  pivot_longer(
+    cols = c(Degree, Closeness, Harmonic),
+    names_to = "centrality",
+    values_to = "weight"
+  ) %>%
+  # 设置因子顺序
+  mutate(
+    centrality = factor(centrality, levels = c("Degree", "Closeness", "Harmonic"))
+  )
+
+# 图1: 热力图 (Heatmap)
+ggplot(df, aes(x = centrality, y = Service, fill = weight)) +
+  geom_tile(color = "white", linewidth = 1) +
+  # 添加数值标签
+  geom_text(
+    aes(label = ifelse(!is.na(weight), sprintf("%.1f", weight), "")),
+    col = "white"
+  ) +
+  facet_wrap(.~ `Visitor group`, ncol = 1, scale = "free_y") +
+  # 颜色设置
+  scale_fill_gradient(
+    low = "#FFF5EB", high = "#8B0000", na.value = "white",
+    limits = c(0, 1), name = "Weight"
+  ) +
+  labs(y = NULL) +
+  theme_bw()
+# 图2: 圆圈图 (Circle Plot)
+ggplot(df %>% filter(!is.na(weight)), aes(x = centrality, y = Service)) +
+  geom_point(size = 3) +
+  facet_wrap(.~ `Visitor group`, ncol = 1, scale = "free_y") +
+  labs(y = NULL) +
+  theme_bw()
+
+# Export ----
+# 各群体各季节中心度原始数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(
+    combined_data %>% filter(vis_src %in% c("local", "tourist")),
+    by = c("loc_id" = "id")
+  ) %>%
+  select(
+    "loc_id", "spa_group", "vis_src", "season",
+    "degree", "closeness", "harmonic"
+  ) %>%
+  write.csv("data_proc/loc_centrality_raw.csv")
+
+# 各群体各季节中心度按地区汇总数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(
+    combined_data %>% filter(vis_src %in% c("local", "tourist")),
+    by = c("loc_id" = "id")
+  ) %>%
+  select(
+    "loc_id", "spa_group", "vis_src", "season",
+    "degree", "closeness", "harmonic"
+  ) %>%
+  group_by(vis_src, spa_group, season) %>%
+  summarise(
+    across(
+      .cols = c(degree, closeness, harmonic),
+      .fns = list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd = ~ sd(.x, na.rm = TRUE),
+        # 计算四分位数。
+        q25 = ~ quantile(.x, probs = 0.25, na.rm = TRUE),
+        q50 = ~ quantile(.x, probs = 0.50, na.rm = TRUE), # 中位数
+        q75 = ~ quantile(.x, probs = 0.75, na.rm = TRUE)
+      ),
+      # 定义新列名格式：原始列名_函数名
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) %>%
+  write.csv("data_proc/loc_centrality_summary.csv")
+
+# 可达性原始数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(loc_poi_access, by = "loc_id") %>%
+  select(loc_id, spa_group, all_of(access_cols)) %>%
+  write.csv("data_proc/loc_accessibility_raw.csv")
+
+# 可达性汇总数据。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(loc_poi_access, by = "loc_id") %>%
+  select(loc_id, spa_group, all_of(access_cols)) %>%
+  group_by(spa_group) %>%
+  summarise(
+    across(
+      .cols = all_of(access_cols),
+      .fns = list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd = ~ sd(.x, na.rm = TRUE),
+        # 计算四分位数。
+        q25 = ~ quantile(.x, probs = 0.25, na.rm = TRUE),
+        q50 = ~ quantile(.x, probs = 0.50, na.rm = TRUE), # 中位数
+        q75 = ~ quantile(.x, probs = 0.75, na.rm = TRUE)
+      ),
+      # 定义新列名格式：原始列名_函数名
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) %>%
+  write.csv("data_proc/loc_accessibility_summary.csv")
+
+# 供需指数原始数据。
+loc_dem_sup %>%
+  select(vis_src, id, , spa_group, season, ds_cat, ds_val) %>%
+  write.csv("data_proc/loc_supplydemand_raw.csv")
+
+# 供需指数汇总计算。
+loc_dem_sup %>%
+  select(vis_src, id, , spa_group, season, ds_cat, ds_val) %>%
+  group_by(vis_src, spa_group, season, ds_cat) %>%
+  summarise(
+    across(
+      .cols = ds_val,
+      .fns = list(
+        mean = ~ mean(.x, na.rm = TRUE),
+        sd = ~ sd(.x, na.rm = TRUE),
+        # 计算四分位数。
+        q25 = ~ quantile(.x, probs = 0.25, na.rm = TRUE),
+        q50 = ~ quantile(.x, probs = 0.50, na.rm = TRUE), # 中位数
+        q75 = ~ quantile(.x, probs = 0.75, na.rm = TRUE)
+      ),
+      # 定义新列名格式：原始列名_函数名
+      .names = "{.col}_{.fn}"
+    ),
+    .groups = "drop"
+  ) %>%
+  write.csv("data_proc/loc_supplydemand_summary.csv")
