@@ -52,6 +52,7 @@ combined_data <- pmap(
   )
 
 # Demand ----
+## 图6 ----
 # 函数：画特定群体各季节各中心度地图。
 plt_demand_map <- function(visitor_x) {
   ggplot() +
@@ -87,14 +88,21 @@ plt_demand_map <- function(visitor_x) {
         ))),
       aes(size = cen_val_normalized, col = spa_group), alpha = 0.6
     ) +
-    scale_color_npg() +
+    scale_color_npg(labels = function(x) str_to_title(x)) +
+    scale_x_continuous(
+      breaks = c(129.1, 129.3, 129.5, 129.7),
+      labels = c("129.1E", "129.3E", "129.5E", "129.7E")
+    ) +
+    labs(col = "Location cluster") +
     scale_size_continuous(
       name = "Normalized Centrality", range = c(0.1, 3)
     ) +
     theme_bw() +
     theme(
       axis.text.x = element_text(angle = 90),
-      panel.grid = element_line(color = "white")
+      panel.grid = element_line(color = "white"),
+      legend.text = element_text(size = 13),
+      legend.title = element_text(size = 14)
     ) +
     facet_grid(centrality ~ season)
 }
@@ -112,6 +120,42 @@ png(
 )
 plt_demand_map("tourist")
 dev.off()
+
+# 第三部分：各用户群体不同地点组团中分季度中心度的中值对比。
+loc %>%
+  st_drop_geometry() %>%
+  left_join(
+    combined_data %>% filter(vis_src %in% c("local", "tourist")),
+    by = c("loc_id" = "id")
+  ) %>%
+  select(
+    "loc_id", "spa_group", "vis_src", "season",
+    "degree", "closeness", "harmonic"
+  ) %>%
+  group_by(vis_src, spa_group, season) %>%
+  summarise(
+    across(c(degree, closeness, harmonic), function(x) median(x, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(degree, closeness, harmonic),
+    names_to = "centrality",
+    values_to = "cen_val"
+  ) %>%
+  mutate(
+    spa_group = str_to_title(spa_group),
+    vis_src = str_to_title(vis_src),
+    centrality = str_to_title(centrality)
+  ) %>%
+  ggplot() +
+  geom_point(aes(spa_group, cen_val, col = as.factor(season)), alpha = 0.8) +
+  facet_grid(centrality ~ vis_src, scale = "free") +
+  labs(x = "Location cluster", y = "Centrality", col = "Quater") +
+  scale_color_manual(values = c(
+    "1" = "#377EB8", "2" = "#4DAF4A", "3" = "#E41A1C", "4" = "#FF7F00"
+  )) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
 
 # Supply ----
 # 定义不同可达时间段的权重。
@@ -536,7 +580,7 @@ net_index %>%
     )
   ) +
   theme_bw() +
-  labs(x = "Season", y = "Index value")
+  labs(x = "Quater", y = "Index value")
 
 # Node index ----
 # 直方图。
