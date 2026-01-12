@@ -124,7 +124,7 @@ dev.off()
 # 第三部分：各用户群体不同地点组团中分季度中心度的中值对比。
 png(
   paste0("data_proc/loc_cen_mid_", Sys.Date(), ".png"),
-  width = 1400, height = 800, res = 300
+  width = 1400, height = 1000, res = 300
 )
 loc %>%
   st_drop_geometry() %>%
