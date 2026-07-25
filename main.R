@@ -14,7 +14,9 @@ loc <- st_read("data_raw/loc/loc62.shp") %>%
   # 计算每个定义地点的面积，单位为平方米。
   st_make_valid() %>%
   mutate(loc_area = st_area(.) %>% as.numeric()) %>%
-  st_transform(6668)
+  st_transform(6668) %>%
+  # 删除加計呂麻島（kakeromajima）：人口过少，POI可达性数据缺失，与主岛交通不连续。
+  filter(spa_group != "kakeromajima")
 
 # 对每个地点，计算其包含的轨迹点个数、涉及的人数。
 # Bug: 后面有同名变量。
@@ -120,7 +122,7 @@ ggplot() +
     data = st_as_sf(st_centroid(loc)) %>%
       mutate(spa_group = factor(spa_group, levels = c(
         "north", "tatsugo", "airport", "city",
-        "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+        "mangrove", "mid", "uken", "setouchi"
       ))),
     aes(col = spa_group)
   ) +

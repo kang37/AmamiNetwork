@@ -49,7 +49,9 @@ combined_data <- pmap(
     "harmonic" = "harmonicclosnes",
     "betweeness" = "betweenes",
     "closeness" = "closnes"
-  )
+  ) %>%
+  # 删除加計呂麻島节点（ka1-ka8）。
+  filter(!grepl("^ka", id))
 
 # Demand ----
 ## 图6 ----
@@ -84,7 +86,7 @@ plt_demand_map <- function(visitor_x) {
         # 修改变量类型。
         mutate(spa_group = factor(spa_group, levels = c(
           "north", "tatsugo", "airport", "city",
-          "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+          "mangrove", "mid", "uken", "setouchi"
         ))),
       aes(size = cen_val_normalized, col = spa_group), alpha = 0.6
     ) +
@@ -201,7 +203,7 @@ loc_poi_access <- lapply(excel_sheets(poi_file_path), proc_poi_sheet) %>%
 # 定义可达性字段
 access_cols <- c(
   "education", "government", "health", "ac",
-  "public_amenities", "retail", "tourism"
+  "retail", "tourism"
 )
 
 png(
@@ -223,14 +225,13 @@ ggplot() +
       mutate(
         spa_group = factor(spa_group, levels = c(
           "north", "tatsugo", "airport", "city",
-          "mangrove", "mid", "uken", "setouchi", "kakeromajima"
+          "mangrove", "mid", "uken", "setouchi"
         )),
         poi = case_when(
           poi == "ac" ~ "Accommodation & Food",
           poi == "education" ~ "Education",
           poi == "government" ~ "Government",
           poi == "health" ~ "Health",
-          poi == "public_amenities" ~ "Public amenities",
           poi == "retail" ~ "Commerce",
           poi == "tourism" ~ "Tourism & Recreation",
         )
@@ -270,31 +271,27 @@ loc_dem_sup <-
         ds_edu = education / degree,
         ds_gov = government/ degree,
         ds_health = health / closeness,
-        ds_amen_close = public_amenities / closeness,
-        ds_amen_harmonic = public_amenities / harmonic,
         ds_retail_close = retail / closeness,
         ds_retail_harmonic = retail / harmonic
       ) %>%
       # 将无限大的结果转化为0：对应供给非0而需求为0的地点-季节。
-      mutate(across(contains("ds_"), ~ ifelse(is.infinite(.x), 1, .x))) %>%
+      mutate(across(contains(“ds_”), ~ ifelse(is.infinite(.x), 1, .x))) %>%
       # 对每个地点的供需比率进行标准化。
       group_by(vis_src) %>%
       mutate(across(
-        contains("ds_"),
+        contains(“ds_”),
         ~ (.x - min(.x, na.rm = T))/(max(.x, na.rm = T) - min(.x, na.rm = T))
       )) %>%
       ungroup() %>%
       # 对一对多的供需配对，计算供需比率加权平均值。
       mutate(
-        # 更强调“平均可达性”，harmonic处理偏远点，用于微调。
-        ds_amen_mix = ds_amen_close * 0.7 + ds_amen_harmonic * 0.3,
-        # 更强调“平均可达性”，harmonic处理偏远点，用于微调。
+        # 更强调”平均可达性”，harmonic处理偏远点，用于微调。
         ds_retail_mix = ds_retail_close * 0.7 + ds_retail_harmonic * 0.3
       ) %>%
       # 转化为长数据。
-      select(vis_src, id, season, contains("ds")) %>%
+      select(vis_src, id, season, contains(“ds”)) %>%
       select(
-        -c(ds_amen_close, ds_amen_harmonic, ds_retail_close, ds_retail_harmonic)
+        -c(ds_retail_close, ds_retail_harmonic)
       ) %>%
       pivot_longer(
         cols = contains("ds_"), names_to = "ds_cat", values_to = "ds_val"
@@ -306,7 +303,6 @@ loc_dem_sup <-
       mutate(
         ds_accomfood_degree = ac / degree,
         ds_accomfood_close = ac / closeness,
-        ds_amen = public_amenities / closeness,
         ds_retail_degree = retail / degree,
         ds_retail_harmonic = retail / harmonic,
         ds_tour_degree = tourism / degree,
@@ -378,8 +374,6 @@ ds_label <- c(
   "ds_edu" = "Education",
   "ds_gov" = "Government",
   "ds_health" = "Health",
-  "ds_amen" = "Public amenities",
-  "ds_amen_mix" = "Public amenities",
   "ds_tour_mix" = "Tourism & Recreation"
 )
 
@@ -591,13 +585,13 @@ loc_dem_sup_min %>%
   filter(
     !(
       ds_cat %in% c(
-        "ds_tour_mix", "ds_amen", "ds_amen_mix", "ds_accomfood_mix"
+        "ds_tour_mix", "ds_accomfood_mix"
       ) &
         vis_src == "local"
     ),
     !(
       ds_cat %in% c(
-        "ds_health", "ds_gov", "ds_edu", "ds_amen_mix"
+        "ds_health", "ds_gov", "ds_edu"
       ) &
         vis_src == "tourist"
     )
