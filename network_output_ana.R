@@ -666,7 +666,7 @@ net_index %>%
 # Node index ----
 # 直方图。
 lapply(
-  c("indegree", "closness_centrality", "betweeness_centrality"),
+  c("indegree", "closeness", "betweeness"),
   function(index_x) {
     combined_data %>%
       filter(vis_src != "local_tourist") %>%
@@ -679,7 +679,7 @@ lapply(
 )
 # 密度图。
 lapply(
-  c("indegree", "closness_centrality", "betweeness_centrality"),
+  c("indegree", "closeness", "betweeness"),
   function(index_x) {
     combined_data %>%
       filter(vis_src != "local_tourist") %>%
