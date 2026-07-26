@@ -18,6 +18,11 @@ loc <- st_read("data_raw/loc/loc62.shp") %>%
   # 删除加計呂麻島（kakeromajima）：人口过少，POI可达性数据缺失，与主岛交通不连续。
   filter(spa_group != "kakeromajima")
 
+# 从轨迹数据中同步删除加計呂麻島的轨迹点（agoop_amami仅含loc_id，无loc_area，
+# ka*节点在loc中已被删除，若不同步过滤则后续join会产生NA，导致分析出错）。
+agoop_amami <- agoop_amami %>%
+  filter(is.na(loc_id) | !grepl("^ka", loc_id))
+
 # 对每个地点，计算其包含的轨迹点个数、涉及的人数。
 # Bug: 后面有同名变量。
 loc_smry_1 <- agoop_amami %>%
@@ -55,6 +60,11 @@ loc_smry <- left_join(
   # 单位DailyID地点滞留时间中位数计算。
   agoop_amami %>%
     st_drop_geometry() %>%
+    # agoop_amami仅有loc_id（QGIS空间连接只加入loc_id），需从loc补充loc_area。
+    left_join(
+      loc %>% st_drop_geometry() %>% select(loc_id, loc_area),
+      by = "loc_id"
+    ) %>%
     # 先计算每个DailyID的地点滞留时间。
     group_by(source, qua, dailyid, loc_id, loc_area) %>%
     summarise(

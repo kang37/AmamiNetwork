@@ -275,11 +275,11 @@ loc_dem_sup <-
         ds_retail_harmonic = retail / harmonic
       ) %>%
       # 将无限大的结果转化为0：对应供给非0而需求为0的地点-季节。
-      mutate(across(contains(“ds_”), ~ ifelse(is.infinite(.x), 1, .x))) %>%
+      mutate(across(contains("ds_"), ~ ifelse(is.infinite(.x), 1, .x))) %>%
       # 对每个地点的供需比率进行标准化。
       group_by(vis_src) %>%
       mutate(across(
-        contains(“ds_”),
+        contains("ds_"),
         ~ (.x - min(.x, na.rm = T))/(max(.x, na.rm = T) - min(.x, na.rm = T))
       )) %>%
       ungroup() %>%
@@ -289,7 +289,7 @@ loc_dem_sup <-
         ds_retail_mix = ds_retail_close * 0.7 + ds_retail_harmonic * 0.3
       ) %>%
       # 转化为长数据。
-      select(vis_src, id, season, contains(“ds”)) %>%
+      select(vis_src, id, season, contains("ds")) %>%
       select(
         -c(ds_retail_close, ds_retail_harmonic)
       ) %>%
