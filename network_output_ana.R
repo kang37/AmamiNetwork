@@ -167,10 +167,9 @@ loc %>%
   geom_point(aes(spa_group, cen_val, col = as.factor(season)), alpha = 0.8) +
   facet_grid(centrality ~ vis_src, scale = "free") +
   labs(x = "Location cluster", y = "Centrality", col = "Quarter") +
-  scale_color_manual(
-    values = c("1" = "#FF9EBC", "2" = "#4DAF4A", "3" = "#E41A1C", "4" = "#377EB8"),
-    labels = c("1" = "Spring", "2" = "Summer", "3" = "Autumn", "4" = "Winter")
-  ) +
+  scale_color_manual(values = c(
+    "1" = "#FF9EBC", "2" = "#4DAF4A", "3" = "#E41A1C", "4" = "#377EB8"
+  )) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90))
 dev.off()
